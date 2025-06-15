@@ -1,0 +1,1787 @@
+#include <iostream> 
+#include <fstream> 
+#include <cstring> // Manipulating C-style strings
+#include <ctime> 
+#include <limits> // For setting limits on numeric input
+#include <string> 
+#ifdef _WIN32
+#include <windows.h> // Enabling Windows-specific functionality like text color
+#endif
+using namespace std;
+
+// Defining constant values used throughout the program
+const int MAX_NAME = 50; // Maximum length for flower names and categories
+const int MAX_ITEMS = 100; // Maximum number of items that can be stored
+const int INITIAL_ORDER_CAPACITY = 20; // Initial capacity for order arrays
+const int QUEUE_SIZE = MAX_ITEMS; // Size of the queue, same as maximum items
+const int TABLE_SIZE = 37; // Prime number used as the size of the hash table
+
+enum TextColor { BLUE, BEIGE, CYAN, DARK_BLUE, GREEN, DEFAULT }; // Enum for different text colors
+
+void setColor(TextColor color) {
+#ifdef _WIN32
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+    switch (color) {
+        case BLUE:
+            SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            break;
+        case BEIGE:
+            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            break;
+        case CYAN:
+            SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+            break;
+        case DARK_BLUE:
+            SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE);
+            break;
+        case GREEN:
+            SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+            break;
+        case DEFAULT:
+            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            break;
+    }
+#else
+    switch (color) {
+        case BLUE:
+            cout << "\033[34m";
+            break;
+        case BEIGE:
+            cout << "\033[93m";
+            break;
+        case CYAN:
+            cout << "\033[36m";
+            break;
+        case DARK_BLUE:
+            cout << "\033[34;1m";
+            break;
+        case GREEN:
+            cout << "\033[32m";
+            break;
+        case DEFAULT:
+            cout << "\033[0m";
+            break;
+    }
+#endif
+}
+
+void resetColor() {
+    setColor(DEFAULT);
+}
+
+// Flower structure for both teams
+struct Flower {
+    char name[MAX_NAME];
+    double price;
+    char category[MAX_NAME];
+
+    Flower(const char* n = "", double p = 0.0, const char* c = "") {
+        strncpy(name, n, MAX_NAME - 1);
+        name[MAX_NAME - 1] = '\0';
+        price = p;
+        strncpy(category, c, MAX_NAME - 1);
+        category[MAX_NAME - 1] = '\0';
+    }
+};
+
+// Category structure
+struct CategoryItem {
+    char name[MAX_NAME];
+};
+
+// Order structure for both teams
+struct Order {
+    char flowerName[MAX_NAME];
+    int quantity;
+    double unitPrice;
+
+    Order(const char* n = "", int q = 0, double p = 0.0) {
+        strncpy(flowerName, n, MAX_NAME - 1);
+        flowerName[MAX_NAME - 1] = '\0';
+        quantity = q;
+        unitPrice = p;
+    }
+};
+
+// FlowerQueue for Team B
+struct FlowerQueue {
+    Flower items[QUEUE_SIZE];
+    int front;
+    int rear;
+    int size;
+
+    FlowerQueue() : front(0), rear(-1), size(0) {}
+
+    bool isFull() { return size >= QUEUE_SIZE; }
+    bool isEmpty() { return size == 0; }
+
+    void enqueue(Flower flower) {
+        if (isFull()) return;
+        rear = (rear + 1) % QUEUE_SIZE;
+        items[rear] = flower;
+        size++;
+    }
+
+    Flower dequeue() {
+        Flower emptyFlower;
+        if (isEmpty()) return emptyFlower;
+        Flower flower = items[front];
+        front = (front + 1) % QUEUE_SIZE;
+        size--;
+        return flower;
+    }
+};
+
+// Node structure for Team A's Linked Queue
+struct Node {
+    Flower flower;
+    Node* next;
+    Node(const Flower& f) : flower(f), next(NULL) {}
+};
+
+// Linked Queue for Team A
+class LinkedQueue {
+private:
+    Node* head;
+    Node* tail;
+
+public:
+    LinkedQueue() : head(NULL), tail(NULL) {}
+
+    bool isEmpty() const {
+        return head == NULL;
+    }
+
+    void enqueue(const Flower& flower) {
+        Node* n = new Node(flower);
+        if (!tail) {
+            head = tail = n;
+        } else {
+            tail->next = n;
+            tail = n;
+        }
+    }
+
+    Flower dequeue() {
+        if (isEmpty()) {
+            Flower emptyFlower;
+            return emptyFlower;
+        }
+        Node* temp = head;
+        Flower flower = temp->flower;
+        head = head->next;
+        if (!head) tail = NULL;
+        delete temp;
+        return flower;
+    }
+
+    Flower peek() const {
+        if (isEmpty()) {
+            Flower emptyFlower;
+            return emptyFlower;
+        }
+        return head->flower;
+    }
+
+    bool hasNext() const {
+        return head != NULL;
+    }
+
+    ~LinkedQueue() {
+        while (head) {
+            Node* tmp = head;
+            head = head->next;
+            delete tmp;
+        }
+    }
+};
+
+// Team A: Hashing with Separate Chaining and Folding Method
+class FlowerHashTable {
+private:
+    LinkedQueue table[TABLE_SIZE];
+    CategoryItem menuItems[MAX_ITEMS];
+    int menuSize;
+    Order* cart;
+    int cartSize;
+    int cartCapacity;
+    Order* orderHistory;
+    int orderHistorySize;
+    int orderHistoryCapacity;
+
+    void trim(char* str) {
+        int len = strlen(str);
+        while (len > 0 && (isspace(str[len - 1]) || str[len - 1] == '\r' || str[len - 1] == '\n')) {
+            str[len--] = '\0';
+        }
+        int start = 0;
+        while (start < len && isspace(str[start])) {
+            start++;
+        }
+        if (start > 0) {
+            memmove(str, str + start, len - start + 1);
+        }
+    }
+
+    bool isValidCategory(const char* category) {
+        for (int i = 0; i < menuSize; i++) {
+            if (strcmp(category, menuItems[i].name) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    int foldingHash(const char* key, int tableSize) {
+        string s = key;
+        int sum = 0;
+        for (int i = (int)s.size(); i > 0; i -= 2) {
+            int start = max(0, i - 2);
+            int part = 0;
+            for (int j = start; j < i && j < (int)s.size(); j++) {
+                part = part * 10 + s[j];
+            }
+            sum += part;
+        }
+        return sum % tableSize;
+    }
+
+    void resizeCart() {
+        int newCapacity = cartCapacity * 2;
+        Order* newCart = new Order[newCapacity];
+        for (int i = 0; i < cartSize; i++) {
+            newCart[i] = cart[i];
+        }
+        delete[] cart;
+        cart = newCart;
+        cartCapacity = newCapacity;
+    }
+
+    void resizeOrderHistory() {
+        int newCapacity = orderHistoryCapacity * 2;
+        Order* newOrderHistory = new Order[newCapacity];
+        for (int i = 0; i < orderHistorySize; i++) {
+            newOrderHistory[i] = orderHistory[i];
+        }
+        delete[] orderHistory;
+        orderHistory = newOrderHistory;
+        orderHistoryCapacity = newCapacity;
+    }
+
+public:
+    FlowerHashTable() : menuSize(0), cartSize(0), cartCapacity(INITIAL_ORDER_CAPACITY), orderHistorySize(0), orderHistoryCapacity(INITIAL_ORDER_CAPACITY) {
+        cart = new Order[cartCapacity];
+        orderHistory = new Order[orderHistoryCapacity];
+    }
+
+    ~FlowerHashTable() {
+        delete[] cart;
+        delete[] orderHistory;
+    }
+
+    bool readMenuFromFile(const char* filename) {
+        ifstream file(filename);
+        if (!file.is_open()) {
+            cout << "Failed to open " << filename << " for Team A. Ensure the file exists in the project directory.\n";
+            return false;
+        }
+
+        char line[MAX_NAME];
+        while (file.getline(line, MAX_NAME)) {
+            if (menuSize >= MAX_ITEMS) break;
+            if (strlen(line)) {
+                trim(line);
+                strncpy(menuItems[menuSize].name, line, MAX_NAME - 1);
+                menuItems[menuSize].name[MAX_NAME - 1] = '\0';
+                menuSize++;
+            }
+        }
+        file.close();
+        return true;
+    }
+
+    bool readFlowersFromFile(const char* filename) {
+        ifstream file(filename);
+        if (!file.is_open()) {
+            cout << "Failed to open " << filename << " for Team A.\n";
+            return false;
+        }
+
+        char line[256];
+        int flowerCount = 0;
+        while (file.getline(line, sizeof(line))) {
+            char* name = strtok(line, ",");
+            char* price = strtok(NULL, ",");
+            char* category = strtok(NULL, "");
+
+            if (!name || !price || !category) continue;
+
+            trim(name);
+            trim(price);
+            trim(category);
+
+            char* priceValue = price;
+            while (*priceValue && !isdigit(*priceValue)) priceValue++;
+            if (!*priceValue) continue;
+
+            if (!isValidCategory(category)) continue;
+
+            Flower flower(name, atof(priceValue), category);
+            int idx = foldingHash(flower.name, TABLE_SIZE);
+            table[idx].enqueue(flower);
+            flowerCount++;
+        }
+        file.close();
+        return flowerCount >= 15;
+    }
+
+    void displayFlowersByCategory(const char* category) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        setColor(GREEN);
+        cout << "\nFlowers in category: '" << category << "'\n";
+        resetColor();
+        int index = 1;
+
+        bool found = false;
+        for (int i = 0; i < TABLE_SIZE; i++) {
+            LinkedQueue& queue = table[i];
+            LinkedQueue tempQueue;
+            while (queue.hasNext()) {
+                Flower flower = queue.peek();
+                if (strcmp(flower.category, category) == 0) {
+                    cout << index++ << ". " << flower.name << " - RM " << flower.price << endl;
+                    found = true;
+                }
+                tempQueue.enqueue(queue.dequeue());
+            }
+            while (!tempQueue.isEmpty()) {
+                queue.enqueue(tempQueue.dequeue());
+            }
+        }
+
+        if (!found) {
+            cout << "No flowers found in category: '" << category << "'.\n";
+        }
+        cout << "\nPress Enter to return to menu: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    void addToCart(const char* category) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        setColor(GREEN);
+        cout << "\nAdd to Cart - Flowers in category: '" << category << "'\n";
+        resetColor();
+
+        // Collect matching flowers into a temporary array for selection
+        Flower matchingFlowers[MAX_ITEMS];
+        int matchCount = 0;
+
+        for (int i = 0; i < TABLE_SIZE; i++) {
+            LinkedQueue& queue = table[i];
+            LinkedQueue tempQueue;
+            while (queue.hasNext()) {
+                Flower flower = queue.peek();
+                if (strcmp(flower.category, category) == 0) {
+                    cout << (matchCount + 1) << ". " << flower.name << " - RM " << flower.price << endl;
+                    matchingFlowers[matchCount++] = flower;
+                }
+                tempQueue.enqueue(queue.dequeue());
+            }
+            while (!tempQueue.isEmpty()) {
+                queue.enqueue(tempQueue.dequeue());
+            }
+        }
+
+        if (matchCount == 0) {
+            cout << "No flowers found in category: '" << category << "'.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        cout << "\nEnter the number of the flower to add to cart (1-" << matchCount << ", or 0 to cancel): ";
+        int flowerChoice;
+        while (!(cin >> flowerChoice)) {
+            cout << "Invalid input. Please enter a number: ";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+        cin.ignore();
+
+        if (flowerChoice == 0) {
+            cout << "Cancelled.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        if (flowerChoice < 1 || flowerChoice > matchCount) {
+            cout << "Invalid flower number.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        Flower selectedFlower = matchingFlowers[flowerChoice - 1];
+
+        cout << "Enter quantity (maximum 5 flowers per order): ";
+        int quantity;
+        while (!(cin >> quantity)) {
+            cout << "Invalid input. Please enter a number: ";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+        cin.ignore();
+
+        if (quantity <= 0 || quantity > 5) {
+            cout << "Invalid quantity. Maximum 5 flowers per order.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        if (cartSize >= cartCapacity) {
+            resizeCart();
+        }
+        cart[cartSize++] = Order(selectedFlower.name, quantity, selectedFlower.price);
+        cout << "Added " << quantity << " " << selectedFlower.name << " to your cart.\n";
+        cout << "\nPress Enter to return to menu: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    void viewOrderHistory() {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+        setColor(DARK_BLUE);
+        cout << "\nOrder History:\n";
+        resetColor();
+        if (orderHistorySize == 0) {
+            cout << "Order history is empty.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+        double total = 0.0;
+        for (int i = 0; i < orderHistorySize; i++) {
+            cout << "Flower: " << orderHistory[i].flowerName << "\n";
+            cout << "Quantity: " << orderHistory[i].quantity << "\n";
+            cout << "Unit Price: RM " << orderHistory[i].unitPrice << "\n";
+            cout << "Total Price: RM " << (orderHistory[i].unitPrice * orderHistory[i].quantity) << "\n\n";
+            total += orderHistory[i].unitPrice * orderHistory[i].quantity;
+        }
+        setColor(GREEN);
+        cout << "Overall Total Price: RM " << total << "\n";
+        resetColor();
+        cout << "\nPress Enter to continue: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    void displayOrderDetails() {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+        setColor(DARK_BLUE);
+        cout << "\nOrder Details:\n";
+        resetColor();
+        if (cartSize == 0) {
+            cout << "Cart is empty.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+        double total = 0.0;
+        for (int i = 0; i < cartSize; i++) {
+            cout << "Flower: " << cart[i].flowerName << "\n";
+            cout << "Quantity: " << cart[i].quantity << "\n";
+            cout << "Unit Price: RM " << cart[i].unitPrice << "\n";
+            cout << "Total Price: RM " << (cart[i].unitPrice * cart[i].quantity) << "\n\n";
+            total += cart[i].unitPrice * cart[i].quantity;
+        }
+        setColor(GREEN);
+        cout << "Overall Total Price: RM " << total << "\n";
+        resetColor();
+        cout << "Order successfully!\n";
+        cout << "\nPress Enter to return to menu: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    void saveCartToFile(const char* filename) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        if (cartSize == 0) {
+            cout << "Cart is empty.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        ofstream file(filename, ios::app);
+        if (!file.is_open()) {
+            cout << "Failed to create " << filename << " for Team A.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        time_t now = time(0);
+        char* dt = ctime(&now);
+        dt[strlen(dt) - 1] = '\0';
+        for (int i = 0; i < cartSize; i++) {
+            file << dt << "\t" << cart[i].flowerName << "\t" << cart[i].quantity 
+                 << "\tRM " << (cart[i].unitPrice * cart[i].quantity) << endl;
+            if (orderHistorySize >= orderHistoryCapacity) {
+                resizeOrderHistory();
+            }
+            orderHistory[orderHistorySize++] = cart[i];
+        }
+        file.close();
+
+        // Display initial cart details
+        setColor(DARK_BLUE);
+        cout << "\nCart Details:\n";
+        resetColor();
+        double total = 0.0;
+        for (int i = 0; i < cartSize; i++) {
+            cout << "Flower: " << cart[i].flowerName << "\n";
+            cout << "Quantity: " << cart[i].quantity << "\n";
+            cout << "Unit Price: RM " << cart[i].unitPrice << "\n";
+            cout << "Total Price: RM " << (cart[i].unitPrice * cart[i].quantity) << "\n\n";
+            total += cart[i].unitPrice * cart[i].quantity;
+        }
+        setColor(GREEN);
+        cout << "Overall Total Price: RM " << total << "\n";
+        resetColor();
+
+        // Ask if user wants to continue ordering
+        cout << "\nWould you like to continue ordering?\n";
+        cout << "1: Yes\n";
+        cout << "0: No\n";
+        cout << "Enter choice: ";
+        int continueChoice;
+        while (!(cin >> continueChoice)) {
+            cout << "Invalid input. Please enter a number: ";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+        cin.ignore();
+
+        if (continueChoice == 1) {
+            // Clear cart only if user chooses to continue ordering
+            cartSize = 0;
+            displayOrderDetails();
+        } else if (continueChoice == 0) {
+            // Do not clear cart; return to menu
+            cout << "\nCart items preserved. Press Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        } else {
+            cout << "Invalid choice. Cart items preserved. Returning to menu.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+    }
+
+    void saveToFile(const char* filename) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        ofstream file(filename);
+        if (!file.is_open()) {
+            cout << "Failed to create " << filename << " for Team A.\n";
+            return;
+        }
+
+        for (int i = 0; i < TABLE_SIZE; i++) {
+            LinkedQueue& queue = table[i];
+            LinkedQueue tempQueue;
+            while (queue.hasNext()) {
+                Flower flower = queue.peek();
+                file << flower.name << ",RM " << flower.price << "," << flower.category << endl;
+                tempQueue.enqueue(queue.dequeue());
+            }
+            while (!tempQueue.isEmpty()) {
+                queue.enqueue(tempQueue.dequeue());
+            }
+        }
+
+        file.close();
+        cout << "Data saved to " << filename << endl;
+        cout << "\nPress Enter to return to menu: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    void displayCategories() {
+        if (menuSize == 0) {
+            cout << "No categories available.\n";
+            return;
+        }
+        for (int i = 0; i < menuSize; i++) {
+            cout << (i + 1) << ". " << menuItems[i].name << endl;
+        }
+    }
+
+    int getMenuSize() const { return menuSize; }
+    const char* getCategoryName(int index) const {
+        if (index >= 0 && index < menuSize) return menuItems[index].name;
+        return "";
+    }
+    int getCartSize() const { return cartSize; }
+};
+
+// Team B: Sorting and Searching
+class FlowerShop {
+private:
+    Flower* flowers;
+    int flowerSize;
+    CategoryItem* menuItems;
+    int menuSize;
+    Order* orders;
+    int orderQuantity;
+    int orderCapacity;
+    Order* orderHistory;
+    int orderHistorySize;
+    int orderHistoryCapacity;
+    FlowerQueue queue;
+
+    void resizeOrders() {
+        int newCapacity = orderCapacity * 2;
+        Order* newOrders = new Order[newCapacity];
+        for (int i = 0; i < orderQuantity; i++) {
+            newOrders[i] = orders[i];
+        }
+        delete[] orders;
+        orders = newOrders;
+        orderCapacity = newCapacity;
+    }
+
+    void resizeOrderHistory() {
+        int newCapacity = orderHistoryCapacity * 2;
+        Order* newOrderHistory = new Order[newCapacity];
+        for (int i = 0; i < orderHistorySize; i++) {
+            newOrderHistory[i] = orderHistory[i];
+        }
+        delete[] orderHistory;
+        orderHistory = newOrderHistory;
+        orderHistoryCapacity = newCapacity;
+    }
+
+    void trim(char* str) {
+        int len = strlen(str);
+        while (len > 0 && (isspace(str[len - 1]) || str[len - 1] == '\r' || str[len - 1] == '\n')) {
+            str[len--] = '\0';
+        }
+        int start = 0;
+        while (start < len && isspace(str[start])) {
+            start++;
+        }
+        if (start > 0) {
+            memmove(str, str + start, len - start + 1);
+        }
+    }
+
+    bool isValidCategory(const char* category) {
+        for (int i = 0; i < menuSize; i++) {
+            if (strcmp(category, menuItems[i].name) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void toLower(char* str, char* result) {
+        for (int i = 0; str[i]; i++) {
+            result[i] = tolower(str[i]);
+        }
+        result[strlen(str)] = '\0';
+    }
+
+    int getFlowerCount(const char* category) {
+        int count = 0;
+        for (int i = 0; i < flowerSize; i++) {
+            if (strcmp(flowers[i].category, category) == 0) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+public:
+    FlowerShop() {
+        flowers = new Flower[MAX_ITEMS];
+        flowerSize = 0;
+        menuItems = new CategoryItem[MAX_ITEMS];
+        menuSize = 0;
+        orderCapacity = INITIAL_ORDER_CAPACITY;
+        orderQuantity = 0;
+        orders = new Order[orderCapacity];
+        orderHistorySize = 0;
+        orderHistoryCapacity = INITIAL_ORDER_CAPACITY;
+        orderHistory = new Order[orderHistoryCapacity];
+    }
+
+    ~FlowerShop() {
+        delete[] flowers;
+        delete[] menuItems;
+        delete[] orders;
+        delete[] orderHistory;
+    }
+
+    int getOrderQuantity() const { return orderQuantity; }
+
+    bool readMenuFromFile(const char* filename) {
+        ifstream file(filename);
+        if (!file.is_open()) {
+            cout << "Failed to open " << filename << " for Team B. Ensure the file exists in the project directory.\n";
+            return false;
+        }
+
+        char line[MAX_NAME];
+        while (file.getline(line, MAX_NAME)) {
+            if (menuSize >= MAX_ITEMS) break;
+            if (strlen(line) > 0) {
+                trim(line);
+                strncpy(menuItems[menuSize].name, line, MAX_NAME - 1);
+                menuItems[menuSize].name[MAX_NAME - 1] = '\0';
+                menuSize++;
+            }
+        }
+        file.close();
+        return true;
+    }
+
+    bool readFlowersFromFile(const char* filename) {
+        ifstream file(filename);
+        if (!file.is_open()) {
+            cout << "Failed to open " << filename << " for Team B. Ensure the file exists in the project directory.\n";
+            return false;
+        }
+
+        char line[256];
+        while (file.getline(line, sizeof(line))) {
+            if (flowerSize >= MAX_ITEMS) break;
+
+            char* name = strtok(line, ",");
+            char* price = strtok(NULL, ",");
+            char* category = strtok(NULL, "");
+
+            if (!name || !price || !category) continue;
+
+            trim(name);
+            trim(price);
+            trim(category);
+
+            char* priceValue = price;
+            while (*priceValue && !isdigit(*priceValue)) priceValue++;
+            if (!*priceValue) continue;
+
+            if (!isValidCategory(category)) continue;
+
+            strncpy(flowers[flowerSize].name, name, MAX_NAME - 1);
+            flowers[flowerSize].name[MAX_NAME - 1] = '\0';
+            flowers[flowerSize].price = atof(priceValue);
+            strncpy(flowers[flowerSize].category, category, MAX_NAME - 1);
+            flowers[flowerSize].category[MAX_NAME - 1] = '\0';
+
+            flowerSize++;
+        }
+        file.close();
+        return true;
+    }
+
+    void placeOrder(const char* flowerName, int quantity) {
+        if (orderQuantity >= orderCapacity) {
+            resizeOrders();
+        }
+        strncpy(orders[orderQuantity].flowerName, flowerName, MAX_NAME - 1);
+        orders[orderQuantity].flowerName[MAX_NAME - 1] = '\0';
+        orders[orderQuantity].quantity = quantity;
+        double price = 0.0;
+        for (int i = 0; i < flowerSize; i++) {
+            if (strcmp(flowers[i].name, flowerName) == 0) {
+                price = flowers[i].price;
+                break;
+            }
+        }
+        orders[orderQuantity].unitPrice = price;
+        orderQuantity++;
+    }
+
+    void saveOrdersToFile() {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        if (orderQuantity == 0) {
+            cout << "Cart is empty.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+
+        bingoSortOrdersByQuantityAndName(orders, orderQuantity);
+
+        ofstream file("orders.txt", ios::app);
+        if (!file.is_open()) {
+            cout << "Failed to create orders.txt for Team B.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        time_t now = time(0);
+        char* dt = ctime(&now);
+        dt[strlen(dt) - 1] = '\0';
+        for (int i = 0; i < orderQuantity; i++) {
+            file << dt << "\t" << orders[i].flowerName << "\t" << orders[i].quantity 
+                 << "\tRM " << (orders[i].unitPrice * orders[i].quantity) << endl;
+            if (orderHistorySize >= orderHistoryCapacity) {
+                resizeOrderHistory();
+            }
+            orderHistory[orderHistorySize++] = orders[i];
+        }
+        file.close();
+
+        // Cart Details
+        setColor(DARK_BLUE);
+        cout << "\nCart Details:\n";
+        resetColor();
+        double total = 0.0;
+        for (int i = 0; i < orderQuantity; i++) {
+            cout << "Flower: " << orders[i].flowerName << "\n";
+            cout << "Quantity: " << orders[i].quantity << "\n";
+            cout << "Unit Price: RM " << orders[i].unitPrice << "\n";
+            cout << "Total Price: RM " << (orders[i].unitPrice * orders[i].quantity) << "\n\n";
+            total += orders[i].unitPrice * orders[i].quantity;
+        }
+        setColor(GREEN);
+        cout << "Overall Total Price: RM " << total << "\n";
+        resetColor();
+
+        cout << "\nWould you like to continue ordering?\n";
+        cout << "1: Yes\n";
+        cout << "0: No\n";
+        cout << "Enter choice: ";
+        int continueChoice;
+        while (!(cin >> continueChoice)) {
+            cout << "Invalid input. Please enter a number: ";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+        cin.ignore();
+
+        if (continueChoice == 1) {
+            orderQuantity = 0;
+            displayOrderDetails();
+        } else if (continueChoice == 0) {
+            cout << "\nCart items preserved. Press Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        } else {
+            cout << "Invalid choice. Cart items preserved. Returning to menu.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+    }
+
+    // Order History  
+    void viewOrderHistory() {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+        setColor(DARK_BLUE);
+        cout << "\nOrder History:\n";
+        resetColor();
+        if (orderHistorySize == 0) {
+            cout << "Order history is empty.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+
+        bingoSortOrdersByQuantityAndName(orderHistory, orderHistorySize);
+        double total = 0.0;
+        for (int i = 0; i < orderHistorySize; i++) {
+            cout << "Flower: " << orderHistory[i].flowerName << "\n";
+            cout << "Quantity: " << orderHistory[i].quantity << "\n";
+            cout << "Unit Price: RM " << orderHistory[i].unitPrice << "\n";
+            cout << "Total Price: RM " << (orderHistory[i].unitPrice * orderHistory[i].quantity) << "\n\n";
+            total += orderHistory[i].unitPrice * orderHistory[i].quantity;
+        }
+        setColor(GREEN);
+        cout << "Overall Total Price: RM " << total << "\n";
+        resetColor();
+        cout << "\nPress Enter to return to menu: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    void displayOrderDetails() {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+        setColor(DARK_BLUE);
+        cout << "\nOrder Details:\n";
+        resetColor();
+        if (orderQuantity == 0) {
+            cout << "Cart is empty.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return;
+        }
+        double total = 0.0;
+        for (int i = 0; i < orderQuantity; i++) {
+            cout << "Flower: " << orders[i].flowerName << "\n";
+            cout << "Quantity: " << orders[i].quantity << "\n";
+            cout << "Unit Price: RM " << orders[i].unitPrice << "\n";
+            cout << "Total Price: RM " << (orders[i].unitPrice * orders[i].quantity) << "\n\n";
+            total += orders[i].unitPrice * orders[i].quantity;
+        }
+        setColor(GREEN);
+        cout << "Overall Total Price: RM " << total << "\n";
+        resetColor();
+        cout << "Order successfully!\n";
+        cout << "\nPress Enter to return to menu: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    void saveSortedToFile(const char* filename) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        ofstream file(filename);
+        if (!file.is_open()) {
+            cout << "Failed to create " << filename << " for Team B.\n";
+            return;
+        }
+        for (int i = 0; i < flowerSize; i++) {
+            file << flowers[i].name << ",RM " << flowers[i].price << "," << flowers[i].category << endl;
+        }
+        file.close();
+        cout << "Sorted data saved to " << filename << endl;
+        cout << "\nPress Enter to return to menu: ";
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    }
+
+    bool displayFlowersByCategory(const char* category) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        setColor(GREEN);
+        cout << "\nFlowers in category: '" << category << "'\n";
+        resetColor();
+        int flowerCount = 0;
+        for (int i = 0; i < flowerSize; i++) {
+            if (strcmp(flowers[i].category, category) == 0) {
+                cout << (flowerCount + 1) << ". " << flowers[i].name << " - RM " << flowers[i].price << endl;
+                flowerCount++;
+            }
+        }
+
+        if (flowerCount == 0) {
+            cout << "No flowers found in category: '" << category << "'.\n";
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return false;
+        }
+
+        cout << "\nEnter the number of the flower to add to cart (1-" << flowerCount << ", or 0 to finish): ";
+        cout << "Enter 6 to view other categories: ";
+        return true;
+    }
+
+    void displayCategories() {
+        if (menuSize == 0) {
+            cout << "No categories available.\n";
+            return;
+        }
+        for (int i = 0; i < menuSize; i++) {
+            cout << (i + 1) << ". " << menuItems[i].name << endl;
+        }
+    }
+
+    bool placeOrderFromCategory(const char* category) {
+        while (true) {
+            if (!displayFlowersByCategory(category)) {
+                return false;
+            }
+
+            int flowerChoice;
+            while (!(cin >> flowerChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+
+            if (flowerChoice == 6) {
+                viewOtherCategories();
+                return false;
+            }
+
+            if (flowerChoice == 0) {
+                if (getOrderQuantity() > 0) {
+                    return false;
+                }
+                return false;
+            }
+
+            if (flowerChoice < 1 || flowerChoice > getFlowerCount(category)) {
+                cout << "Invalid flower number.\n";
+                cout << "\nPress Enter to try again: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                continue;
+            }
+
+            int selectedFlowerIndex = -1;
+            int currentCount = 0;
+            for (int i = 0; i < flowerSize; i++) {
+                if (strcmp(flowers[i].category, category) == 0) {
+                    currentCount++;
+                    if (currentCount == flowerChoice) {
+                        selectedFlowerIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (selectedFlowerIndex == -1) {
+                cout << "Error selecting flower.\n";
+                cout << "\nPress Enter to try again: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                continue;
+            }
+
+            cout << "Enter quantity (maximum 5 flowers per order): ";
+            int quantity;
+            while (!(cin >> quantity)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+
+            if (quantity <= 0 || quantity > 5) {
+                cout << "Invalid quantity. Maximum 5 flowers per order.\n";
+                cout << "\nPress Enter to try again: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                continue;
+            }
+
+            placeOrder(flowers[selectedFlowerIndex].name, quantity);
+            cout << "Added " << quantity << " " << flowers[selectedFlowerIndex].name << " to your cart.\n";
+            cout << "\nWould you like to add more flowers in '" << category << "' category?\n";
+            cout << "1: Continue in this category\n";
+            cout << "2: View other categories\n";
+            cout << "3: View order history\n";
+            cout << "0: Return to menu\n";
+            cout << "Enter choice: ";
+            int continueChoice;
+            while (!(cin >> continueChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+
+            if (continueChoice == 1) {
+                continue;
+            } else if (continueChoice == 2) {
+                viewOtherCategories();
+                return false;
+            } else if (continueChoice == 3) {
+                viewOrderHistory();
+                continue;
+            } else if (continueChoice == 0) {
+                return false;
+            } else {
+                cout << "Invalid choice. Continuing in this category.\n";
+                cout << "\nPress Enter to continue: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+        }
+    }
+
+    void viewOtherCategories() {
+        while (true) {
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(GREEN);
+            cout << "\nSelect a Category to View Flowers:\n";
+            resetColor();
+            displayCategories();
+            cout << "Enter category number to view flowers (1-" << getMenuSize() << ", or 0 to return to menu): ";
+            int catChoice;
+            while (!(cin >> catChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+            if (catChoice == 0) {
+                return;
+            } else if (catChoice >= 1 && catChoice <= getMenuSize()) {
+                if (placeOrderFromCategory(getCategoryName(catChoice - 1))) {
+                    continue;
+                } else {
+                    return;
+                }
+            } else {
+                cout << "Invalid category number.\n";
+                cout << "\nPress Enter to try again: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+        }
+    }
+
+//Team B: String Search Flower Name
+    void searchFlowersByName() {
+        while (true) {
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+
+            char searchStr[MAX_NAME];
+            cout << "\nEnter flower name to search (or press Enter to cancel): ";
+            cin.getline(searchStr, MAX_NAME);
+
+            if (strlen(searchStr) == 0) {
+                cout << "Search cancelled.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                return;
+            }
+
+            char searchLower[MAX_NAME];
+            toLower(searchStr, searchLower);
+
+            Flower matches[MAX_ITEMS];
+            int matchCount = 0;
+            int m = strlen(searchLower);
+            if (m == 0) {
+                cout << "Empty search string.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                return;
+            }
+
+            const int prime = 101;
+            const int d = 256;
+            long long patternHash = 0;
+            long long h = 1;
+            for (int i = 0; i < m - 1; i++) {
+                h = (h * d) % prime;
+            }
+            for (int i = 0; i < m; i++) {
+                patternHash = (d * patternHash + searchLower[i]) % prime;
+            }
+
+            for (int i = 0; i < flowerSize; i++) {
+                char flowerNameLower[MAX_NAME];
+                toLower(flowers[i].name, flowerNameLower);
+                int n = strlen(flowerNameLower);
+
+                if (n < m) continue;
+                long long textHash = 0;
+                for (int j = 0; j < m; j++) {
+                    textHash = (d * textHash + flowerNameLower[j]) % prime;
+                }
+
+                for (int j = 0; j <= n - m; j++) {
+                    if (patternHash == textHash) {
+                        bool match = true;
+                        for (int k = 0; k < m; k++) {
+                            if (flowerNameLower[j + k] != searchLower[k]) {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match) {
+                            matches[matchCount++] = flowers[i];
+                            break;
+                        }
+                    }
+
+                    if (j < n - m) {
+                        textHash = (d * (textHash - flowerNameLower[j] * h) + flowerNameLower[j + m]) % prime;
+                        if (textHash < 0) textHash += prime;
+                    }
+                }
+            }
+
+            if (matchCount == 0) {
+                cout << "No flowers found matching '" << searchStr << "'.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                return;
+            }
+
+            FlowerQueue tempQueue;
+            for (int i = 0; i < matchCount; i++) {
+                tempQueue.enqueue(matches[i]);
+            }
+
+            cout << "\nFound " << matchCount << " matching flowers:\n";
+            for (int i = 0; i < matchCount; i++) {
+                Flower current = tempQueue.dequeue();
+                cout << (i + 1) << ". " << current.name << " - RM " << current.price
+                     << " (" << current.category << ")\n";
+                matches[i] = current;
+            }
+
+            cout << "\nEnter the number of the flower to add to cart (1-" << matchCount << ", or 0 to return to menu): ";
+            int flowerChoice;
+            while (!(cin >> flowerChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+
+            if (flowerChoice == 0) {
+                return;
+            }
+            if (flowerChoice < 1 || flowerChoice > matchCount) {
+                cout << "Invalid flower number.\n";
+                cout << "\nPress Enter to try again: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                continue;
+            }
+
+            cout << "Enter quantity (maximum 5 flowers per order): ";
+            int quantity;
+            while (!(cin >> quantity)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+
+            if (quantity <= 0 || quantity > 5) {
+                cout << "Invalid quantity. Maximum 5 flowers per order.\n";
+                cout << "\nPress Enter to try again: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                continue;
+            }
+
+            placeOrder(matches[flowerChoice - 1].name, quantity);
+            cout << "Added " << quantity << " " << matches[flowerChoice - 1].name << " to your cart.\n";
+            cout << "\nWould you like to add more flowers?\n";
+            cout << "1: Search again\n";
+            cout << "2: View categories\n";
+            cout << "0: Return to menu\n";
+            cout << "Enter choice: ";
+            int continueChoice;
+            while (!(cin >> continueChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+
+            if (continueChoice == 1) {
+                continue;
+            } else if (continueChoice == 2) {
+                viewOtherCategories();
+                return;
+            } else if (continueChoice == 0) {
+                return;
+            } else {
+                cout << "Invalid choice. Returning to menu.\n";
+                cout << "\nPress Enter to continue: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                return;
+            }
+        }
+    }
+
+    void bingoSortFlowersByName() {
+        if (flowerSize <= 1) return;
+
+        Flower sorted[MAX_ITEMS];
+        int sortedCount = 0;
+
+        while (sortedCount < flowerSize) {
+            char maxName[MAX_NAME] = "";
+            int maxCount = 0;
+
+            // Find the maximum name in the unsorted portion
+            for (int i = 0; i < flowerSize; i++) {
+                bool alreadySorted = false;
+                for (int j = 0; j < sortedCount; j++) {
+                    if (strcmp(flowers[i].name, sorted[j].name) == 0) {
+                        alreadySorted = true;
+                        break;
+                    }
+                }
+                if (!alreadySorted && strcmp(flowers[i].name, maxName) > 0) {
+                    strcpy(maxName, flowers[i].name);
+                }
+            }
+
+            // Count how many flowers have the maximum name
+            for (int i = 0; i < flowerSize; i++) {
+                bool alreadySorted = false;
+                for (int j = 0; j < sortedCount; j++) {
+                    if (strcmp(flowers[i].name, sorted[j].name) == 0) {
+                        alreadySorted = true;
+                        break;
+                    }
+                }
+                if (!alreadySorted && strcmp(flowers[i].name, maxName) == 0) {
+                    maxCount++;
+                }
+            }
+
+            // Move all flowers with the maximum name to the sorted array
+            for (int i = 0; i < flowerSize && sortedCount < flowerSize; i++) {
+                bool alreadySorted = false;
+                for (int j = 0; j < sortedCount; j++) {
+                    if (strcmp(flowers[i].name, sorted[j].name) == 0) {
+                        alreadySorted = true;
+                        break;
+                    }
+                }
+                if (!alreadySorted && strcmp(flowers[i].name, maxName) == 0) {
+                    sorted[sortedCount++] = flowers[i];
+                }
+            }
+        }
+
+        // Copy sorted array back to flowers in reverse order (descending)
+        for (int i = 0; i < flowerSize; i++) {
+            flowers[i] = sorted[flowerSize - 1 - i];
+        }
+    }
+
+    void bingoSortMenu() {
+        if (menuSize <= 1) return;
+
+        CategoryItem sorted[MAX_ITEMS];
+        int sortedCount = 0;
+
+        while (sortedCount < menuSize) {
+            char maxName[MAX_NAME] = "";
+            int maxCount = 0;
+
+            // Find the maximum category name in the unsorted portion
+            for (int i = 0; i < menuSize; i++) {
+                bool alreadySorted = false;
+                for (int j = 0; j < sortedCount; j++) {
+                    if (strcmp(menuItems[i].name, sorted[j].name) == 0) {
+                        alreadySorted = true;
+                        break;
+                    }
+                }
+                if (!alreadySorted && strcmp(menuItems[i].name, maxName) > 0) {
+                    strcpy(maxName, menuItems[i].name);
+                }
+            }
+
+            // Count how many categories have the maximum name
+            for (int i = 0; i < menuSize; i++) {
+                bool alreadySorted = false;
+                for (int j = 0; j < sortedCount; j++) {
+                    if (strcmp(menuItems[i].name, sorted[j].name) == 0) {
+                        alreadySorted = true;
+                        break;
+                    }
+                }
+                if (!alreadySorted && strcmp(menuItems[i].name, maxName) == 0) {
+                    maxCount++;
+                }
+            }
+
+            // Move all categories with the maximum name to the sorted array
+            for (int i = 0; i < menuSize && sortedCount < menuSize; i++) {
+                bool alreadySorted = false;
+                for (int j = 0; j < sortedCount; j++) {
+                    if (strcmp(menuItems[i].name, sorted[j].name) == 0) {
+                        alreadySorted = true;
+                        break;
+                    }
+                }
+                if (!alreadySorted && strcmp(menuItems[i].name, maxName) == 0) {
+                    sorted[sortedCount++] = menuItems[i];
+                }
+            }
+        }
+
+        // Copy sorted array back to menuItems in reverse order (descending)
+        for (int i = 0; i < menuSize; i++) {
+            menuItems[i] = sorted[menuSize - 1 - i];
+        }
+    }
+
+    void bingoSortOrdersByQuantityAndName(Order* arr, int size) {
+        if (size <= 1) return;
+
+        // Using simple bubble sort to ensure clear logic
+        for (int i = 0; i < size - 1; i++) {
+            for (int j = 0; j < size - i - 1; j++) {
+                // Sort by quantity in descending order
+                if (arr[j].quantity < arr[j + 1].quantity) {
+                    Order temp = arr[j];
+                    arr[j] = arr[j + 1];
+                    arr[j + 1] = temp;
+                }
+                // If quantities are the same, sort by name in ascending order
+                else if (arr[j].quantity == arr[j + 1].quantity) {
+                    if (strcmp(arr[j].flowerName, arr[j + 1].flowerName) > 0) {
+                        Order temp = arr[j];
+                        arr[j] = arr[j + 1];
+                        arr[j + 1] = temp;
+                    }
+                }
+            }
+        }
+    }
+
+    int getMenuSize() const { return menuSize; }
+    const char* getCategoryName(int index) const {
+        if (index >= 0 && index < menuSize) return menuItems[index].name;
+        return "";
+    }
+};
+
+// Team A Page
+void teamAPage(FlowerHashTable& hashTable) {
+    while (true) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        setColor(BLUE);
+        cout << "\nWelcome to Florist Shop - Team A (Customer View - Hashing)\n";
+        resetColor();
+        cout << "1. Display Categories\n";
+        cout << "2. Search Flowers by Category\n";
+        cout << "3. Add to Cart\n";
+        cout << "4. View Order History\n";
+        cout << "5. Save Cart to orders\n";
+        cout << "6. Save Sorted Data\n";
+        cout << "7. Return to Main Menu\n";
+        cout << "Enter choice: ";
+
+        int choice;
+        while (!(cin >> choice)) {
+            cout << "Invalid input. Please enter a number: ";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+        cin.ignore();
+
+        if (choice == 1) {
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(GREEN);
+            cout << "\nCategories:\n";
+            resetColor();
+            hashTable.displayCategories();
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        } else if (choice == 2) {
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(GREEN);
+            cout << "\nAvailable Categories:\n";
+            resetColor();
+            hashTable.displayCategories();
+            cout << "Enter category number to search (1-" << hashTable.getMenuSize() << ", or 0 to cancel): ";
+            int catChoice;
+            while (!(cin >> catChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+            if (catChoice == 0) {
+                cout << "Search cancelled.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            } else if (catChoice >= 1 && catChoice <= hashTable.getMenuSize()) {
+                hashTable.displayFlowersByCategory(hashTable.getCategoryName(catChoice - 1));
+            } else {
+                cout << "Invalid category number.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+        } else if (choice == 3) {
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(GREEN);
+            cout << "\nAvailable Categories:\n";
+            resetColor();
+            hashTable.displayCategories();
+            cout << "Enter category number to add to cart (1-" << hashTable.getMenuSize() << ", or 0 to cancel): ";
+            int catChoice;
+            while (!(cin >> catChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+            if (catChoice == 0) {
+                cout << "Cancelled.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            } else if (catChoice >= 1 && catChoice <= hashTable.getMenuSize()) {
+                hashTable.addToCart(hashTable.getCategoryName(catChoice - 1));
+            } else {
+                cout << "Invalid category number.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+        } else if (choice == 4) {
+            hashTable.viewOrderHistory();
+        } else if (choice == 5) {
+            hashTable.saveCartToFile("orders.txt");
+        } else if (choice == 6) {
+            hashTable.saveToFile("sorted_information.txt");
+        } else if (choice == 7) {
+            return;
+        } else {
+            cout << "Invalid choice.\n";
+            cout << "\nPress Enter to continue: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+    }
+}
+
+// Team B Page
+void teamBPage(FlowerShop& shop) {
+    while (true) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        setColor(BLUE);
+        cout << "\nWelcome to Florist Shop - Team B (Customer View - Sorting & Searching)\n";
+        resetColor();
+        cout << "Please choose an option:\n";
+        cout << "1. Display Categories\n";
+        cout << "2. Search Flowers by Name\n";
+        cout << "3. Sort Flowers by Name\n";
+        cout << "4. Save Sorted Flowers to File\n";
+        cout << "5. View Order History\n";
+        cout << "6. View Cart and order\n";
+        cout << "7. Return to Main Menu\n";
+        cout << "Enter choice: ";
+
+        int choice;
+        while (!(cin >> choice)) {
+            cout << "Invalid input. Please enter a number: ";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+        cin.ignore();
+
+        if (choice == 1) {
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(GREEN);
+            cout << "\nCategories:\n";
+            resetColor();
+            shop.displayCategories();
+            cout << "\nPress Enter to return to menu: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(GREEN);
+            cout << "\nSelect a Category to View Flowers:\n";
+            resetColor();
+            shop.displayCategories();
+            cout << "Enter category number to view flowers (1-" << shop.getMenuSize() << ", or 0 to cancel): ";
+            int catChoice;
+            while (!(cin >> catChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+            if (catChoice == 0) {
+                cout << "Selection cancelled.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            } else if (catChoice >= 1 && catChoice <= shop.getMenuSize()) {
+                shop.placeOrderFromCategory(shop.getCategoryName(catChoice - 1));
+            } else {
+                cout << "Invalid category number.\n";
+                cout << "\nPress Enter to return to menu: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+        } else if (choice == 2) {
+            shop.searchFlowersByName();
+        } else if (choice == 3) {
+            shop.bingoSortFlowersByName();
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(BEIGE);
+            cout << "\nFlowers sorted by name.\n";
+            resetColor();
+            cout << "\nCategories:\n";
+            shop.displayCategories();
+            cout << "Enter category number to view flowers (1-" << shop.getMenuSize() << ", or 0 to return to menu): ";
+            int catChoice;
+            while (!(cin >> catChoice)) {
+                cout << "Invalid input. Please enter a number: ";
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+            cin.ignore();
+            if (catChoice == 0) {
+                continue;
+            } else if (catChoice >= 1 && catChoice <= shop.getMenuSize()) {
+                shop.placeOrderFromCategory(shop.getCategoryName(catChoice - 1));
+            } else {
+                cout << "Invalid category number.\n";
+                cout << "\nPress Enter to try again: ";
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            }
+        } else if (choice == 4) {
+            shop.saveSortedToFile("sorted_information.txt");
+        } else if (choice == 5) {
+            shop.viewOrderHistory();
+        } else if (choice == 6) {
+            shop.saveOrdersToFile();
+        } else if (choice == 7) {
+            return;
+        } else {
+            cout << "Invalid choice.\n";
+            cout << "\nPress Enter to continue: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+    }
+}
+
+// Welcome menu page
+int main() {
+    FlowerHashTable hashTable;
+    FlowerShop shop;
+
+    if (!hashTable.readMenuFromFile("categories.txt") || !hashTable.readFlowersFromFile("flowers.txt")) {
+        cout << "Failed to load required files for Team A. Program will exit.\n";
+        return 1;
+    }
+
+    if (!shop.readMenuFromFile("categories.txt") || !shop.readFlowersFromFile("flowers.txt")) {
+        cout << "Failed to load required files for Team B.\n";
+        return 1;
+    }
+
+    shop.bingoSortMenu();
+    shop.bingoSortFlowersByName();
+
+    while (true) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
+        setColor(GREEN);
+        cout << "--------------------------------\n";
+        cout << "|                              |" << endl;
+        cout << "|   Welcome to Florist Shop!   |" << endl;
+        cout << "|                              |" << endl;
+        cout << "--------------------------------\n";
+        resetColor();
+        cout << "Please Choose Team : " << endl;
+        cout << "1. Team A - Customer View (Hashing)\n";
+        cout << "2. Team B - Customer View (Sorting & Searching)\n";
+        cout << "0. Exit\n";
+        cout << "Enter choice: ";
+
+        int choice;
+        while (!(cin >> choice)) {
+            cout << "Invalid input. Please enter a number: ";
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+        cin.ignore();
+
+        if (choice == 1) {
+            teamAPage(hashTable);
+        } else if (choice == 2) {
+            teamBPage(shop);
+        } else if (choice == 0) {
+            #ifdef _WIN32
+                system("cls");
+            #else
+                system("clear");
+            #endif
+            setColor(CYAN);
+            cout << "---------------------------------------\n";
+            cout << "|                                     |\n";
+            cout << "|  Thank you for using Florist Shop!  |\n";
+            cout << "|                                     |\n";
+            cout << "---------------------------------------\n";
+            resetColor();
+            break;
+        } else {
+            cout << "Invalid choice.\n";
+            cout << "\nPress Enter to continue: ";
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        }
+    }
+    return 0;
+}
