@@ -40,8 +40,11 @@ struct Product {
 // Node for linked list
 struct Node {
     Product data;
+    char time[50]; // Added to store timestamp
     Node* next;
-    Node(const Product& p) : data(p), next(nullptr) {}
+    Node(const Product& p, const char* t = "") : data(p), next(nullptr) {
+        strncpy(time, t, 49); time[49] = '\0';
+    }
 };
 
 // Customer class
@@ -65,8 +68,8 @@ private:
         }
     }
 
-    void insertAtEnd(Node*& head, const Product& p) {
-        Node* newNode = new Node(p);
+    void insertAtEnd(Node*& head, const Product& p, const char* t = "") {
+        Node* newNode = new Node(p, t);
         if (!head) {
             head = newNode;
             return;
@@ -168,7 +171,7 @@ private:
                         currentProduct = currentProduct->next;
                     }
                     Product p(tempName, tempPrice, tempCategory, tempQty);
-                    insertAtEnd(orderHistory, p);
+                    insertAtEnd(orderHistory, p, tempTime);
                     orderHistoryCount++;
                 }
             }
@@ -234,7 +237,7 @@ public:
             _getch();
             return false;
         }
-        file << newUsername << " " << newPassword << " 0\n";
+        file << newUsername << " " << newPassword << "\n"; // Removed the '0'
         file.close();
         setColor(GREEN); cout << "Registration successful!\n"; resetColor();
         cout << "\nPress Enter to return...";
@@ -263,9 +266,9 @@ public:
             char line[150];
             bool found = false;
             while (file.getline(line, 150)) {
-                char tempUser[50], tempPass[50], tempAdmin;
-                if (sscanf(line, "%s %s %c", tempUser, tempPass, &tempAdmin) == 3) {
-                    if (strcmp(username, tempUser) == 0 && strcmp(password, tempPass) == 0 && tempAdmin == '0') {
+                char tempUser[50], tempPass[50];
+                if (sscanf(line, "%s %s", tempUser, tempPass) == 2) { // Removed tempAdmin check
+                    if (strcmp(username, tempUser) == 0 && strcmp(password, tempPass) == 0) {
                         file.close();
                         isLoggedIn = true;
                         clearList(orderHistory); // Clear existing history before loading new user's history
@@ -720,15 +723,81 @@ public:
             time_t now = time(0);
             char* dt = ctime(&now);
             dt[strlen(dt) - 1] = '\0';
+            float total = 0.0;
+            system("cls");
+            setColor(BLUE); cout << "\n=== Invoice ===\n"; resetColor();
+            cout << "Date: " << dt << endl;
+            cout << "Username: " << username << endl;
+            cout << "\nItems Ordered:" << endl;
+            // Calculate maximum lengths dynamically
+            int maxNameLength = 4; // Minimum for "Name"
+            int maxPriceLength = 7; // Minimum for "Price" (e.g., "RM159.00")
+            int maxQtyLength = 3; // Minimum for "Qty"
+            int maxTotalLength = 7; // Minimum for "Total" (e.g., "RM300.00")
             current = cartList;
             while (current) {
-                file << username << "\t" << dt << "\t" << current->data.name << "\t" << current->data.quantity 
-                     << "\tRM" << fixed << setprecision(2) << (current->data.price * current->data.quantity) << endl;
-                Product p = current->data;
-                insertAtEnd(orderHistory, p);
-                orderHistoryCount++;
+                int nameLen = strlen(current->data.name);
+                if (nameLen > maxNameLength) maxNameLength = nameLen;
+                char priceStr[10], totalStr[10];
+                sprintf(priceStr, "RM%.2f", current->data.price);
+                sprintf(totalStr, "RM%.2f", current->data.price * current->data.quantity);
+                int priceLen = strlen(priceStr);
+                int totalLen = strlen(totalStr);
+                if (priceLen > maxPriceLength) maxPriceLength = priceLen;
+                if (totalLen > maxTotalLength) maxTotalLength = totalLen;
+                char qtyStr[4];
+                sprintf(qtyStr, "%d", current->data.quantity);
+                int qtyLen = strlen(qtyStr);
+                if (qtyLen > maxQtyLength) maxQtyLength = qtyLen;
                 current = current->next;
             }
+            // Build dynamic table line
+            string line = "+";
+            line += string(4, '-') + "+"; // No. column
+            line += string(maxNameLength + 2, '-') + "+"; // Name column
+            line += string(maxPriceLength + 2, '-') + "+"; // Price column
+            line += string(maxQtyLength + 2, '-') + "+"; // Qty column
+            line += string(maxTotalLength + 2, '-') + "+"; // Total column
+            cout << line << endl;
+            cout << "| No.| " << left << setw(maxNameLength) << "Name" << " | " 
+                 << left << setw(maxPriceLength) << "Price" << " | " 
+                 << left << setw(maxQtyLength) << "Qty" << " | " 
+                 << left << setw(maxTotalLength) << "Total" << " |" << endl;
+            cout << line << endl;
+            current = cartList;
+            i = 1;
+            while (current) {
+                float itemTotal = current->data.price * current->data.quantity;
+                total += itemTotal;
+                char priceStr[10], totalStr[10];
+                sprintf(priceStr, "RM%.2f", current->data.price);
+                sprintf(totalStr, "RM%.2f", itemTotal);
+                char qtyStr[4];
+                sprintf(qtyStr, "%d", current->data.quantity);
+                cout << "| ";
+                setColor(YELLOW); cout << setw(2) << setfill(' ') << i; resetColor();
+                cout << " | ";
+                setColor(GREEN); cout << left << setw(maxNameLength) << current->data.name; resetColor();
+                cout << " | ";
+                setColor(BLUE); cout << left << setw(maxPriceLength) << setfill(' ') << priceStr; resetColor();
+                cout << " | ";
+                setColor(RED); cout << right << setw(maxQtyLength) << setfill(' ') << qtyStr; resetColor();
+                cout << " | ";
+                setColor(BLUE); cout << left << setw(maxTotalLength) << setfill(' ') << totalStr; resetColor();
+                cout << " |" << endl;
+                file << username << "\t" << dt << "\t" << current->data.name << "\t" << current->data.quantity 
+                     << "\tRM" << fixed << setprecision(2) << itemTotal << endl;
+                Product p = current->data;
+                insertAtEnd(orderHistory, p, dt);
+                orderHistoryCount++;
+                current = current->next;
+                i++;
+            }
+            cout << line << endl;
+            char totalStr[10];
+            sprintf(totalStr, "RM%.2f", total);
+            cout << "Total Amount: " << left << setw(maxTotalLength + 10) << setfill(' ') << totalStr << endl;
+            cout << line << endl;
             file.close();
             clearList(cartList);
             cartCount = 0;
@@ -744,23 +813,58 @@ public:
 
     void viewOrderHistory() {
         system("cls");
-        setColor(BLUE); cout << "\n=== Order History ===\n"; resetColor();
+        setColor(BLUE); cout << "\n=== Purchase Histories ===\n"; resetColor();
         if (!orderHistory) {
-            setColor(RED); cout << "No order history available.\n"; resetColor();
+            setColor(RED); cout << "No purchase history available.\n"; resetColor();
             cout << "\nPress Enter to return...";
             _getch();
             return;
         }
         Node* current = orderHistory;
         int i = 1;
+        // Calculate maximum lengths dynamically
+        int maxNameLength = 4; // Minimum for "Order"
+        int maxQtyLength = 3; // Minimum for "Qty"
+        int maxTimeLength = 10; // Minimum for "Time" (e.g., "Thu Jun 19")
         while (current) {
-            setColor(YELLOW); cout << i++ << ". "; resetColor();
-            setColor(GREEN); cout << "Name: " << current->data.name << ", "; resetColor();
-            setColor(BLUE); cout << "Price: RM" << fixed << setprecision(2) << current->data.price << ", "; resetColor();
-            setColor(RED); cout << "Qty: " << current->data.quantity << ", "; resetColor();
-            setColor(GREEN); cout << "Category: " << current->data.category << endl; resetColor();
+            int nameLen = strlen(current->data.name);
+            if (nameLen > maxNameLength) maxNameLength = nameLen;
+            char qtyStr[4];
+            sprintf(qtyStr, "%d", current->data.quantity);
+            int qtyLen = strlen(qtyStr);
+            if (qtyLen > maxQtyLength) maxQtyLength = qtyLen;
+            int timeLen = strlen(current->time);
+            if (timeLen > maxTimeLength) maxTimeLength = timeLen;
             current = current->next;
         }
+        // Build dynamic table line
+        string line = "+";
+        line += string(4, '-') + "+"; // No. column
+        line += string(maxNameLength + 2, '-') + "+"; // Order column
+        line += string(maxQtyLength + 2, '-') + "+"; // Qty column
+        line += string(maxTimeLength + 2, '-') + "+"; // Time column
+        cout << line << endl;
+        cout << "| No.| " << left << setw(maxNameLength) << "Order" << " | " 
+             << left << setw(maxQtyLength) << "Qty" << " | " 
+             << left << setw(maxTimeLength) << "Time" << " |" << endl;
+        cout << line << endl;
+        current = orderHistory;
+        while (current) {
+            char qtyStr[4];
+            sprintf(qtyStr, "%d", current->data.quantity);
+            cout << "| ";
+            setColor(YELLOW); cout << setw(2) << setfill(' ') << i; resetColor();
+            cout << " | ";
+            setColor(GREEN); cout << left << setw(maxNameLength) << current->data.name; resetColor();
+            cout << " | ";
+            setColor(RED); cout << right << setw(maxQtyLength) << setfill(' ') << qtyStr; resetColor();
+            cout << " | ";
+            setColor(BLUE); cout << left << setw(maxTimeLength) << current->time; resetColor();
+            cout << " |" << endl;
+            current = current->next;
+            i++;
+        }
+        cout << line << endl;
         cout << "\nPress Enter to return...";
         _getch();
     }
@@ -849,7 +953,7 @@ int main() {
             cout << "4. Remove from Cart\n";
             cout << "5. Update Cart Quantity\n";
             cout << "6. Order\n";
-            cout << "7. View Order History\n";
+            cout << "7. View Purchase Histories\n";
             cout << "8. Logout\n";
             cout << "Enter choice (1-8): ";
             string input;
