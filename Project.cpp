@@ -881,18 +881,18 @@ public:
             try {
                 size_t stockPos;
                 long stockLong = stol(tempStockStr, &stockPos); // Assuming stol is allowed
-                 if (stockPos != tempStockStr.length()) { // Check if entire string was consumed
-                     throw invalid_argument("Contains non-numeric characters or trailing data"); // Assuming invalid_argument allowed
+                 if (stockPos != tempStockStr.length()) { // Check if entire string was consumed.
+                     throw invalid_argument("Contains non-numeric characters or trailing data"); // Assuming invalid_argument allowed.
                  }
                 if (stockLong < 0) {
                      cerr << "Warning: Negative stock value '" << tempStockStr << "' for '" << tempName << "' on line #" << lineNumber << " in " << filename << ". Setting to 0.\n";
                      tempStock = 0;
-                } else if (stockLong > numeric_limits<int>::max()) { // Assuming numeric_limits allowed
+                } else if (stockLong > numeric_limits<int>::max()) { // Assuming numeric_limits allowed.
                      cerr << "Warning: Stock value '" << tempStockStr << "' too large for '" << tempName << "' on line #" << lineNumber << " in " << filename << ". Setting to max int.\n";
                      tempStock = numeric_limits<int>::max();
                 }
                 else {
-                    tempStock = static_cast<int>(stockLong); // Cast to int
+                    tempStock = static_cast<int>(stockLong); // Cast to int.
                 }
             } catch (const invalid_argument& e) { // Assuming invalid_argument allowed
                 cerr << "Warning: Invalid stock format '" << tempStockStr << "' for product '" << tempName << "' on line #" << lineNumber << " in " << filename << ". Setting stock to 0. Details: " << e.what() << endl;
