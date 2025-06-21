@@ -1,4 +1,4 @@
-Florish Shop System
+Florist Shop System
 
 Overview
 This is a C++ console-based application simulating an online flower shop. It supports admin and customer functionalities for managing products and orders.
