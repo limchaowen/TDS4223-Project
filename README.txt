@@ -40,7 +40,7 @@ Requirements
 
 
 How to Run
-- Compile and run Florish Shop.cpp using Dev-C++.
+- Compile and run Florist_Shop.cpp using Dev-C++.
 - Choose Admin (1) or Customer (2) from the welcome menu.
 - Follow on-screen prompts to login/register and use features.
 
