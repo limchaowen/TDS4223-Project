@@ -183,9 +183,9 @@ public:
     Customer() : productList(nullptr), cartList(nullptr), orderHistory(nullptr), 
                  productCount(0), cartCount(0), orderHistoryCount(0), isLoggedIn(false) {
         username[0] = '\0'; password[0] = '\0';
-        // Initialize products silently
+        // Initialize products 
         if (!loadProducts("flowers.txt")) {
-            // Handle failure silently or log to file if needed
+            // Handle failure or log to file if needed
         }
     }
     ~Customer() {
