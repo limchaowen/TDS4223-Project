@@ -196,6 +196,54 @@ private:
     string* categoryArray;
     int categoryCount;
     int categoryCapacity;
+    string* getPurchasedProductNames(const string& ordersFilename, int& count) const {
+        ifstream file(ordersFilename.c_str());
+        if (!file) {
+            count = 0;
+            return NULL;
+        }
+        const int initialCapacity = 20;
+        string* tempNames = new string[initialCapacity];
+        int capacity = initialCapacity;
+        count = 0;
+        string line;
+        while (getline(file, line)) {
+            stringstream ss(line);
+            string user, time, name, qty, price;
+            if (getline(ss, user, '\t') && getline(ss, time, '\t') && getline(ss, name, '\t')) {
+                bool found = false;
+                string lowerName = manualToLower(name);
+                for (int i = 0; i < count; ++i) {
+                    if (manualToLower(tempNames[i]) == lowerName) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    if (count == capacity) {
+                        int newCapacity = capacity * 2;
+                        string* newArray = new string[newCapacity];
+                        for (int i = 0; i < count; ++i) newArray[i] = tempNames[i];
+                        delete[] tempNames;
+                        tempNames = newArray;
+                        capacity = newCapacity;
+                    }
+                    tempNames[count++] = name;
+                }
+            }
+        }
+        file.close();
+        return tempNames;
+    }
+    bool isProductPurchased(const string& productName, const string* purchasedNames, int count) const {
+        string lowerProductName = manualToLower(productName);
+        for (int i = 0; i < count; i++) {
+            if (manualToLower(purchasedNames[i]) == lowerProductName) {
+                return true;
+            }
+        }
+        return false;
+    }
     void resizeCategoryArray(int newCapacity) {
         if (newCapacity < categoryCount) return;
         if (newCapacity == 0) newCapacity = 1;
@@ -349,21 +397,16 @@ public:
         setColor(LIGHT_BLUE); cout << "\n=== Search Category ===\n"; resetColor();
         if (searchTerm.empty()) {
             setColor(RED); cout << "Search term cannot be empty.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         if (categoryCount == 0) {
             setColor(RED); cout << "No categories available to search.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         int foundIndex = binarySearchCategory(searchTerm);
         if (foundIndex == -1) {
             setColor(RED); cout << "No exact category found matching '" << searchTerm << "'.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
+            cout << "\nPress any key to return to menu..."; _getch();
         } else {
             setColor(GREEN); cout << "=== Exact Match Category Found ===\n"; resetColor();
             int maxNumLength = (int)string("No.").length();
@@ -397,9 +440,7 @@ public:
                 }
             } catch (...) {
                 setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                return;
+                cout << "\nPress any key to return to menu..."; _getch(); return;
             }
             if (id == 0) {
                 setColor(RED); cout << "Returning to menu.\n"; resetColor();
@@ -408,12 +449,10 @@ public:
                 displayProductNamesByCategory(categoryArray[foundIndex]);
             } else {
                 setColor(RED); cout << "Invalid category ID.\n"; resetColor();
-                cout << "\nPress any key to return to menu...";
-                _getch();
+                cout << "\nPress any key to return to menu..."; _getch();
             }
         }
-        cout << "\nPress any key to return to menu...";
-        _getch();
+        cout << "\nPress any key to return to menu..."; _getch();
     }
     void loadCategories(const string& filename) {
         delete[] categoryArray;
@@ -509,7 +548,7 @@ public:
         newCategory.erase(newCategory.find_last_not_of(" \t\n\r") + 1);
         if (newCategory.empty()) {
             setColor(RED); cout << "Category name cannot be empty.\n"; resetColor();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         bool exists = false;
         for (int i = 0; i < categoryCount; ++i) {
@@ -520,7 +559,7 @@ public:
         }
         if (exists) {
             setColor(RED); cout << "Category '" << newCategory << "' already exists (case-insensitive match).\n"; resetColor();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (categoryCount == categoryCapacity) {
             resizeCategoryArray(categoryCapacity == 0 ? 10 : categoryCapacity * 2);
@@ -556,161 +595,120 @@ public:
             }
             setColor(YELLOW); cout << "Warning: Category was added in memory but failed to save to file. Data might be inconsistent.\n"; resetColor();
         }
+        cout << "\nPress any key to return..."; _getch();
     }
     void deleteCategory(const string& categoriesFilename, const string& productsFilename) {
-        system("cls");
-        setColor(LIGHT_BLUE); cout << "\n=== Delete Category ===\n"; resetColor();
-        if (categoryCount == 0) {
-            setColor(RED); cout << "No categories to delete.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
-        }
-        int uncategorizedIndex = -1;
-        for (int i = 0; i < categoryCount; ++i) {
-            if (manualToLower(categoryArray[i]) == "uncategorized") {
-                uncategorizedIndex = i;
-                break;
-            }
-        }
-        setColor(GREEN); cout << "=== Select Category to Delete ===\n"; resetColor();
-        int maxNumLength = (int)string("No.").length();
-        int maxCategoryNameLength = (int)string("Category Name").length();
-        for (int i = 0; i < categoryCount; ++i) {
-            if (i != uncategorizedIndex) {
-                maxNumLength = manualMax(maxNumLength, (int)intToString(i + 1).length());
-                maxCategoryNameLength = manualMax(maxCategoryNameLength, (int)categoryArray[i].length());
-            } else {
-                maxCategoryNameLength = manualMax(maxCategoryNameLength, (int)categoryArray[i].length() + (int)string("(Cannot delete) ").length());
-            }
-        }
-        const int COLUMN_PADDING_SPACES = 2;
-        int numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
-        int categoryNameColWidth = maxCategoryNameLength + COLUMN_PADDING_SPACES;
-        string headerLine = "+" + string(numColWidth, '-') + "+" + string(categoryNameColWidth, '-') + "+";
-        cout << headerLine << endl;
-        cout << "|" << left << setw(numColWidth) << " No."
-             << "|" << left << setw(categoryNameColWidth) << " Category Name"
-             << "|" << endl;
-        cout << headerLine << endl;
-        int displayIndex = 1;
-        string* deletableCategories = new string[categoryCount];
-        int* deletableIndices = new int[categoryCount];
-        int deletableCount = 0;
-        for (int i = 0; i < categoryCount; ++i) {
-            cout << "|" << left << setw(numColWidth);
-            if (i != uncategorizedIndex) {
-                setColor(YELLOW); cout << (" " + intToString(displayIndex)); resetColor();
-                deletableCategories[deletableCount] = categoryArray[i];
-                deletableIndices[deletableCount] = i;
-                deletableCount++;
-                displayIndex++;
-            } else {
-                setColor(YELLOW); cout << "   "; resetColor();
-            }
-            cout << "|" << left << setw(categoryNameColWidth);
-            if (i != uncategorizedIndex) {
-                setColor(GREEN); cout << (" " + categoryArray[i]); resetColor();
-            } else {
-                setColor(YELLOW); cout << (" (Cannot delete) " + categoryArray[i]); resetColor();
-            }
-            cout << "|" << endl;
-        }
-        cout << headerLine << endl;
-        if (deletableCount == 0) {
-            setColor(YELLOW); cout << "No other categories available to delete.\n"; resetColor();
-            delete[] deletableCategories;
-            delete[] deletableIndices;
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
-        }
-        cout << "Enter category ID (1-" << deletableCount << ") to delete, or 0 to return: ";
-        string input;
-        int id;
-        getline(cin, input);
-        try {
-            size_t pos;
-            id = custom_stoi(input, &pos);
-            string remaining = input.substr(pos);
-            remaining.erase(0, remaining.find_first_not_of(" \t\n\r"));
-            if (!remaining.empty()) {
-                throw invalid_argument("Contains non-numeric characters");
-            }
-        } catch (...) {
-            setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            delete[] deletableCategories;
-            delete[] deletableIndices;
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
-        }
-        if (id == 0) {
-            setColor(RED); cout << "Returning to menu.\n"; resetColor();
-            delete[] deletableCategories;
-            delete[] deletableIndices;
-            Sleep(500);
-            return;
-        }
-        if (id < 1 || id > deletableCount) {
-            setColor(RED); cout << "Invalid category ID.\n"; resetColor();
-            delete[] deletableCategories;
-            delete[] deletableIndices;
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
-        }
-        string categoryToDelete = deletableCategories[id - 1];
-        int originalIndexToRemove = deletableIndices[id - 1];
-        delete[] deletableCategories;
-        delete[] deletableIndices;
-        int productsInCategoryCount = 0;
-        string lowerCategoryToDelete = manualToLower(categoryToDelete);
-        for (int i = 0; i < productCount; ++i) {
-            if (manualToLower(productsArray[i].category) == lowerCategoryToDelete) {
-                productsArray[i].category = "Uncategorized";
-                productsInCategoryCount++;
-            }
-        }
-        setColor(YELLOW); cout << "\nCategory '" << categoryToDelete << "' contains " << productsInCategoryCount << " product(s).\n"; resetColor();
-        cout << "Are you sure you want to delete this category and reassign its products to 'Uncategorized'? (y/n): ";
-        string response;
-        getline(cin, response);
-        response = manualToLower(response);
-        if (response == "y") {
-            try {
-                saveToFile(productsFilename);
-                setColor(GREEN); cout << productsInCategoryCount << " product(s) reassigned to 'Uncategorized'.\n"; resetColor();
-            } catch (const runtime_error& e) {
-                cerr << "Error saving products after reassigning: " << e.what() << endl;
-                setColor(RED); cout << "Category deletion aborted due to product save failure.\n"; resetColor();
-                return;
-            }
-            for (int i = originalIndexToRemove; i < categoryCount - 1; ++i) {
-                categoryArray[i] = categoryArray[i + 1];
-            }
-            categoryCount--;
-            if (categoryCount > 0 && categoryCapacity / categoryCount >= 2) {
-                resizeCategoryArray(categoryCapacity / 2);
-            } else if (categoryCount == 0 && categoryCapacity > 1) {
-                resizeCategoryArray(1);
-            }
-            try {
-                ofstream outFile(categoriesFilename.c_str(), ios::out | ios::trunc);
-                if (!outFile) throw runtime_error("Cannot open categories file for writing: " + categoriesFilename);
-                for (int i = 0; i < categoryCount; ++i) {
-                    outFile << categoryArray[i] << endl;
-                }
-                outFile.close();
-                setColor(GREEN); cout << "Category '" << categoryToDelete << "' deleted successfully.\n"; resetColor();
-            } catch (const runtime_error& e) {
-                cerr << "Error saving categories after deletion: " << e.what() << endl;
-                setColor(YELLOW); cout << "Category was removed from memory but failed to save to file. Data might be inconsistent.\n"; resetColor();
-            }
-        } else {
-            setColor(RED); cout << "Category deletion cancelled.\n"; resetColor();
+    system("cls");
+    setColor(LIGHT_BLUE); cout << "\n=== Delete Category ===\n"; resetColor();
+    int displayableCategoryCount = 0;
+    for (int i = 0; i < categoryCount; ++i) {
+        if (manualToLower(categoryArray[i]) != "uncategorized") {
+            displayableCategoryCount++;
         }
     }
+    if (displayableCategoryCount == 0) {
+        setColor(RED); cout << "No categories available to delete.\n"; resetColor();
+        cout << "\nPress any key to return..."; _getch(); return;
+    }
+    setColor(GREEN); cout << "=== Select Category to Delete ===\n"; resetColor();
+    int maxNumLength = (int)string("No.").length();
+    int maxCategoryNameLength = (int)string("Category Name").length();
+    int* displayMap = new int[displayableCategoryCount];
+    int currentDisplayIndex = 0;
+    for (int i = 0; i < categoryCount; ++i) {
+        if (manualToLower(categoryArray[i]) == "uncategorized") continue;
+        maxNumLength = manualMax(maxNumLength, (int)intToString(currentDisplayIndex + 1).length());
+        maxCategoryNameLength = manualMax(maxCategoryNameLength, (int)categoryArray[i].length());
+    }
+    const int COLUMN_PADDING_SPACES = 2;
+    int numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
+    int categoryNameColWidth = maxCategoryNameLength + COLUMN_PADDING_SPACES;
+    string headerLine = "+" + string(numColWidth, '-') + "+" + string(categoryNameColWidth, '-') + "+";
+    cout << headerLine << endl;
+    cout << "|" << left << setw(numColWidth) << " No."
+         << "|" << left << setw(categoryNameColWidth) << " Category Name"
+         << "|" << endl;
+    cout << headerLine << endl;
+    currentDisplayIndex = 0;
+    for (int i = 0; i < categoryCount; ++i) {
+        if (manualToLower(categoryArray[i]) == "uncategorized") {
+            continue;
+        }
+        displayMap[currentDisplayIndex] = i;
+        cout << "|" << left << setw(numColWidth) << (" " + intToString(currentDisplayIndex + 1));
+        cout << "|" << left << setw(categoryNameColWidth) << (" " + categoryArray[i]);
+        cout << "|" << endl;
+        currentDisplayIndex++;
+    }
+    cout << headerLine << endl;
+    cout << "Enter category ID (1-" << displayableCategoryCount << ") to delete, or 0 to return: ";
+    string input;
+    int id;
+    getline(cin, input);
+    try {
+        size_t pos;
+        id = custom_stoi(input, &pos);
+        string remaining = input.substr(pos);
+        remaining.erase(0, remaining.find_first_not_of(" \t\n\r"));
+        if (!remaining.empty()) {
+            throw invalid_argument("Contains non-numeric characters");
+        }
+    } catch (...) {
+        setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
+        delete[] displayMap;
+        return;
+    }
+    if (id == 0) {
+        setColor(RED); cout << "Deletion cancelled.\n"; resetColor();
+        delete[] displayMap;
+        return;
+    }
+    if (id < 1 || id > displayableCategoryCount) {
+        setColor(RED); cout << "Invalid category ID.\n"; resetColor();
+        delete[] displayMap;
+        return;
+    }
+    int originalIndexToRemove = displayMap[id - 1];
+    string categoryToDelete = categoryArray[originalIndexToRemove];
+    delete[] displayMap;
+    bool inUse = false;
+    for (int i = 0; i < productCount; ++i) {
+        if (manualToLower(productsArray[i].category) == manualToLower(categoryToDelete)) {
+            inUse = true;
+            break;
+        }
+    }
+    if (inUse) {
+        setColor(RED);
+        cout << "This category cannot be deleted because it is still in use by products.\n";
+        resetColor();
+        return;
+    }
+    cout << "\nAre you sure you want to delete the empty category '" << categoryToDelete << "'? (y/n): ";
+    string response;
+    getline(cin, response);
+    response = manualToLower(response);
+    if (response == "y") {
+        for (int i = originalIndexToRemove; i < categoryCount - 1; ++i) {
+            categoryArray[i] = categoryArray[i + 1];
+        }
+        categoryCount--;
+        try {
+            ofstream outFile(categoriesFilename.c_str(), ios::out | ios::trunc);
+            if (!outFile) throw runtime_error("Cannot open categories file for writing: " + categoriesFilename);
+            for (int i = 0; i < categoryCount; ++i) {
+                outFile << categoryArray[i] << endl;
+            }
+            outFile.close();
+            setColor(GREEN); cout << "Category '" << categoryToDelete << "' deleted successfully.\n"; resetColor();
+        } catch (const runtime_error& e) {
+            cerr << "Error saving categories after deletion: " << e.what() << endl;
+            setColor(YELLOW); cout << "Category was removed from memory but failed to save to file. Data might be inconsistent.\n"; resetColor();
+        }
+    } else {
+        setColor(RED); cout << "Category deletion cancelled.\n"; resetColor();
+    }
+}
     void addProduct(const string& filename) {
         system("cls");
         setColor(LIGHT_BLUE); cout << "\n=== Add New Product ===\n"; resetColor();
@@ -722,11 +720,11 @@ public:
         name.erase(name.find_last_not_of(" \t\n\r") + 1);
         if (name.empty()) {
             setColor(RED); cout << "Product name cannot be empty.\n"; resetColor();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (binarySearch(name) != -1) {
             setColor(RED); cout << "Product name '" << name << "' already exists!\n"; resetColor();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         cout << "Enter price (e.g., RM 140.00): ";
         getline(cin, price);
@@ -734,32 +732,61 @@ public:
         price.erase(price.find_last_not_of(" \t\n\r") + 1);
         if (!isValidPrice(price)) {
             setColor(RED); cout << "Invalid price format! Use format like RM 140.00 (must have '.xx').\n"; resetColor();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
-        cout << "Enter category: ";
-        getline(cin, category);
-        category.erase(0, category.find_first_not_of(" \t\n\r"));
-        category.erase(category.find_last_not_of(" \t\n\r") + 1);
-        if (category.empty()) {
-            setColor(RED); cout << "Category cannot be empty.\n"; resetColor();
-            return;
+        cout << "\n";
+        setColor(GREEN); cout << "=== Select a Category ===\n"; resetColor();
+        if (categoryCount == 0) {
+            setColor(RED); cout << "No categories exist. Please add a category first.\n"; resetColor();
+            cout << "\nPress any key to return..."; _getch(); return;
         }
-        bool validCategory = false;
-        string actualCategory = "";
-        string lowerCategory = manualToLower(category);
+        int maxNumLength = (int)string("ID").length();
+        int maxCategoryNameLength = (int)string("Category Name").length();
         for (int i = 0; i < categoryCount; ++i) {
-            if (manualToLower(categoryArray[i]) == lowerCategory) {
-                validCategory = true;
-                actualCategory = categoryArray[i];
-                break;
+            maxNumLength = manualMax(maxNumLength, (int)intToString(i + 1).length());
+            maxCategoryNameLength = manualMax(maxCategoryNameLength, (int)categoryArray[i].length());
+        }
+        const int COLUMN_PADDING_SPACES = 2;
+        int numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
+        int categoryNameColWidth = maxCategoryNameLength + COLUMN_PADDING_SPACES;
+        string headerLine = "+" + string(numColWidth, '-') + "+" + string(categoryNameColWidth, '-') + "+";
+        cout << headerLine << endl;
+        cout << "|" << left << setw(numColWidth) << " ID"
+             << "|" << left << setw(categoryNameColWidth) << " Category Name"
+             << "|" << endl;
+        cout << headerLine << endl;
+        for (int i = 0; i < categoryCount; i++) {
+            cout << "|" << left << setw(numColWidth) << (" " + intToString(i + 1));
+            cout << "|" << left << setw(categoryNameColWidth) << (" " + categoryArray[i]);
+            cout << "|" << endl;
+        }
+        cout << headerLine << endl;
+        cout << "Enter category ID (1-" << categoryCount << ", or 0 to cancel): ";
+        string categoryIdInput;
+        int categoryId;
+        getline(cin, categoryIdInput);
+        try {
+            size_t pos;
+            categoryId = custom_stoi(categoryIdInput, &pos);
+            string remaining = categoryIdInput.substr(pos);
+            remaining.erase(0, remaining.find_first_not_of(" \t\n\r"));
+            if (!remaining.empty()) {
+                throw invalid_argument("Contains non-numeric characters");
             }
+        } catch (...) {
+            setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
+            cout << "\nPress any key to return..."; _getch(); return;
         }
-        if (!validCategory) {
-            setColor(RED); cout << "Invalid category '" << category << "'! Please use one from the existing list (Categories are case-insensitive for matching, but stored case is used).\n"; resetColor();
-            return;
+        if (categoryId == 0) {
+            setColor(RED); cout << "Product addition cancelled.\n"; resetColor();
+            cout << "\nPress any key to return..."; _getch(); return;
         }
-        category = actualCategory;
-        cout << "Enter stock: ";
+        if (categoryId < 1 || categoryId > categoryCount) {
+            setColor(RED); cout << "Invalid category ID!\n"; resetColor();
+            cout << "\nPress any key to return..."; _getch(); return;
+        }
+        category = categoryArray[categoryId - 1];
+        cout << "\nEnter stock: ";
         getline(cin, stockInput);
         stockInput.erase(0, stockInput.find_first_not_of(" \t\n\r"));
         stockInput.erase(stockInput.find_last_not_of(" \t\n\r") + 1);
@@ -773,15 +800,15 @@ public:
             }
             if (stock < 0) {
                 setColor(RED); cout << "Stock cannot be negative!\n"; resetColor();
-                return;
+                cout << "\nPress any key to return..."; _getch(); return;
             }
             if (stock > numeric_limits<int>::max()) {
                 setColor(RED); cout << "Stock value is too large.\n"; resetColor();
-                return;
+                cout << "\nPress any key to return..."; _getch(); return;
             }
         } catch (...) {
             setColor(RED); cout << "Invalid stock value! Please enter a whole number.\n"; resetColor();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         try {
             if (productCount == productCapacity) {
@@ -798,51 +825,93 @@ public:
             cerr << "Error saving product list after adding: " << e.what() << endl;
             setColor(RED); cout << "Product was added in memory but failed to save to file. Data might be inconsistent.\n"; resetColor();
         }
+        cout << "\nPress any key to return..."; _getch();
     }
-    void deleteProduct(const string& filename) {
-        system("cls");
-        setColor(LIGHT_BLUE); cout << "\n=== Delete Product ===\n"; resetColor();
-        if (productCount == 0) {
-            setColor(RED); cout << "No products to delete.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+    void deleteProduct(const string& filename, const string& ordersFilename) {
+    system("cls");
+    setColor(LIGHT_BLUE); cout << "\n=== Delete Product ===\n"; resetColor();
+    if (productCount == 0) {
+        setColor(RED); cout << "No products to delete.\n"; resetColor();
+        cout << "\nPress any key to return to menu..."; _getch(); return;
+    }
+    setColor(GREEN); cout << "=== Select Product to Delete ===\n"; resetColor();
+    int maxNumLength = (int)string("No.").length();
+    int maxNameLength = (int)string("Product Name").length();
+    for (int i = 0; i < productCount; ++i) {
+        maxNumLength = manualMax(maxNumLength, (int)intToString(i + 1).length());
+        maxNameLength = manualMax(maxNameLength, (int)productsArray[i].name.length());
+    }
+    const int COLUMN_PADDING_SPACES = 2;
+    int numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
+    int nameColWidth = maxNameLength + COLUMN_PADDING_SPACES;
+    string headerLine = "+" + string(numColWidth, '-') + "+" + string(nameColWidth, '-') + "+";
+    cout << headerLine << endl;
+    cout << "|" << left << setw(numColWidth) << " No."
+         << "|" << left << setw(nameColWidth) << " Product Name"
+         << "|" << endl;
+    cout << headerLine << endl;
+    for (int i = 0; i < productCount; i++) {
+        cout << "|" << left << setw(numColWidth) << (" " + intToString(i + 1));
+        cout << "|" << left << setw(nameColWidth) << (" " + productsArray[i].name);
+        cout << "|" << endl;
+    }
+    cout << headerLine << endl;
+    cout << "Enter product ID to delete (1-" << productCount << "), or 0 to return: ";
+    string input;
+    int id;
+    getline(cin, input);
+    try {
+        size_t pos;
+        id = custom_stoi(input, &pos);
+        string remaining = input.substr(pos);
+        remaining.erase(0, remaining.find_first_not_of(" \t\n\r"));
+        if (!remaining.empty()) {
+            throw invalid_argument("Contains non-numeric characters");
         }
-        string productName;
-        cout << "Enter name of product to delete: ";
-        getline(cin, productName);
-        productName.erase(0, productName.find_first_not_of(" \t\n\r"));
-        productName.erase(productName.find_last_not_of(" \t\n\r") + 1);
-        if (productName.empty()) {
-            setColor(RED); cout << "Product name cannot be empty.\n"; resetColor();
-            return;
-        }
-        int indexToDelete = binarySearch(productName);
-        if (indexToDelete == -1) {
-            setColor(RED); cout << "Product '" << productName << "' not found.\n"; resetColor();
-            return;
-        }
-        setColor(YELLOW); cout << "Are you sure you want to delete '" << productsArray[indexToDelete].name << "'? (y/n): "; resetColor();
-        string confirmation;
-        getline(cin, confirmation);
-        confirmation = manualToLower(confirmation);
-        if (confirmation != "y") {
-            setColor(RED); cout << "Deletion cancelled.\n"; resetColor();
-            return;
-        }
-        for (int i = indexToDelete; i < productCount - 1; ++i) {
+    } catch (...) {
+        setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
+        return;
+    }
+    if (id == 0) {
+        setColor(RED); cout << "Deletion cancelled.\n"; resetColor();
+        return;
+    }
+    if (id < 1 || id > productCount) {
+        setColor(RED); cout << "Invalid product ID.\n"; resetColor();
+        return;
+    }
+    int originalIndexToDelete = id - 1;
+    Product productToDelete = productsArray[originalIndexToDelete];
+    int purchasedCount = 0;
+    string* purchasedNames = getPurchasedProductNames(ordersFilename, purchasedCount);
+    bool purchased = isProductPurchased(productToDelete.name, purchasedNames, purchasedCount);
+    delete[] purchasedNames;
+    if (purchased) {
+        setColor(RED);
+        cout << "This product cannot be deleted because it has been purchased by a customer.\n";
+        resetColor();
+        return;
+    }
+    setColor(YELLOW); cout << "Are you sure you want to delete '" << productToDelete.name << "'? (y/n): "; resetColor();
+    string confirmation;
+    getline(cin, confirmation);
+    confirmation = manualToLower(confirmation);
+    if (confirmation == "y") {
+        for (int i = originalIndexToDelete; i < productCount - 1; ++i) {
             productsArray[i] = productsArray[i + 1];
         }
         productCount--;
-        insertionSort(productsArray, productCount, true, "name");
         try {
             saveToFile(filename);
-            setColor(GREEN); cout << "Product '" << productName << "' deleted successfully.\n"; resetColor();
+            setColor(GREEN); cout << "Product '" << productToDelete.name << "' deleted successfully.\n"; resetColor();
         } catch (const runtime_error& e) {
             cerr << "Error saving product list after deletion: " << e.what() << endl;
             setColor(YELLOW); cout << "Product was removed from memory but failed to save to file. Data might be inconsistent.\n"; resetColor();
         }
+    } else {
+        setColor(RED); cout << "Deletion cancelled.\n"; resetColor();
     }
+}
     void manualReplace(string& str, char oldChar, char newChar) const {
         for (size_t i = 0; i < str.length(); ++i) {
             if (str[i] == oldChar) {
@@ -1020,8 +1089,7 @@ public:
         }
         if (tempFilteredCount == 0) {
             setColor(RED); cout << "No products found in category: '" + category + "'.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
+            cout << "\nPress any key to return to menu..."; _getch();
             delete[] tempFilteredArray;
             return;
         }
@@ -1049,23 +1117,18 @@ public:
         }
         cout << headerLine << endl;
         delete[] tempFilteredArray;
-        cout << "\nPress any key to return to menu...";
-        _getch();
+        cout << "\nPress any key to return to menu..."; _getch();
     }
     void searchProduct(const string& searchTerm) {
         system("cls");
         setColor(LIGHT_BLUE); cout << "\n=== Search Product ===\n"; resetColor();
         if (searchTerm.empty()) {
             setColor(RED); cout << "Search term cannot be empty.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         if (productCount == 0) {
             setColor(RED); cout << "No products available to search.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         Product* combinedResults = new Product[productCount];
         int combinedCount = 0;
@@ -1135,35 +1198,28 @@ public:
             } catch (...) {
                 setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
                 delete[] combinedResults;
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                return;
+                cout << "\nPress any key to return to menu..."; _getch(); return;
             }
             if (id == 0) {
                 setColor(RED); cout << "Returning to menu.\n"; resetColor();
             } else if (id >= 1 && id <= combinedCount) {
                 system("cls");
                 displayProductById(id, combinedResults, combinedCount);
-                cout << "\nPress any key to return to menu...";
-                _getch();
+                cout << "\nPress any key to return to menu..."; _getch();
             } else {
                 setColor(RED); cout << "Invalid product ID.\n"; resetColor();
-                cout << "\nPress any key to return to menu...";
-                _getch();
+                cout << "\nPress any key to return to menu..."; _getch();
             }
         }
         delete[] combinedResults;
-        cout << "\nPress any key to return to menu...";
-        _getch();
+        cout << "\nPress any key to return to menu..."; _getch();
     }
     void sortAndDisplayCategories() {
         system("cls");
         setColor(LIGHT_BLUE); cout << "\n=== Product Categories (sorted alphabetically) ===\n"; resetColor();
         if (categoryCount == 0) {
             setColor(RED); cout << "No categories to display.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         int maxNumLength = (int)string("No.").length();
         int maxCategoryNameLength = (int)string("Category Name").length();
@@ -1200,21 +1256,17 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (id == 0) {
             setColor(RED); cout << "Returning to menu.\n"; resetColor();
-            Sleep(500);
         } else if (id >= 1 && id <= categoryCount) {
             system("cls");
             displayProductNamesByCategory(categoryArray[id - 1]);
             cout << endl;
         } else {
             setColor(RED); cout << "Invalid category ID.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
+            cout << "\nPress any key to return to menu..."; _getch();
         }
     }
     void sortAndDisplayProductNames() {
@@ -1222,33 +1274,36 @@ public:
         setColor(LIGHT_BLUE); cout << "\n=== Products (sorted by name) ===\n"; resetColor();
         if (productCount == 0) {
             setColor(RED); cout << "No products to display.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         int maxNumLength = (int)string("No.").length();
         int maxProductNameLength = (int)string("Product Name").length();
+        int maxPriceLength = (int)string("Price").length();
         int maxStockLength = (int)string("Current Stock").length();
         for (int i = 0; i < productCount; ++i) {
             maxNumLength = manualMax(maxNumLength, (int)intToString(i + 1).length());
             maxProductNameLength = manualMax(maxProductNameLength, (int)productsArray[i].name.length());
+            maxPriceLength = manualMax(maxPriceLength, (int)productsArray[i].price.length());
             maxStockLength = manualMax(maxStockLength, (int)intToString(productsArray[i].stock).length());
         }
         const int COLUMN_PADDING_SPACES = 2;
         const int STOCK_COLUMN_EXTRA_PAD = 2;
         int numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
         int productNameColWidth = maxProductNameLength + COLUMN_PADDING_SPACES;
+        int priceColWidth = maxPriceLength + COLUMN_PADDING_SPACES;
         int stockColWidth = manualMax((int)string("Current Stock").length(), maxStockLength) + COLUMN_PADDING_SPACES + STOCK_COLUMN_EXTRA_PAD;
-        string headerLine = "+" + string(numColWidth, '-') + "+" + string(productNameColWidth, '-') + "+" + string(stockColWidth, '-') + "+";
+        string headerLine = "+" + string(numColWidth, '-') + "+" + string(productNameColWidth, '-') + "+" + string(priceColWidth, '-') + "+" + string(stockColWidth, '-') + "+";
         cout << headerLine << endl;
         cout << "|" << left << setw(numColWidth) << " No."
              << "|" << left << setw(productNameColWidth) << " Product Name"
+             << "|" << left << setw(priceColWidth) << " Price"
              << "|" << left << setw(stockColWidth) << " Current Stock"
              << "|" << endl;
         cout << headerLine << endl;
         for (int i = 0; i < productCount; i++) {
             cout << "|" << left << setw(numColWidth) << (" " + intToString(i + 1));
             cout << "|" << left << setw(productNameColWidth) << (" " + productsArray[i].name);
+            cout << "|" << left << setw(priceColWidth) << (" " + productsArray[i].price);
             string stockStr = intToString(productsArray[i].stock);
             int paddingToLeft = stockColWidth - stockStr.length() -1;
             if (paddingToLeft < 0) paddingToLeft = 0;
@@ -1271,22 +1326,17 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         if (id == 0) {
             setColor(RED); cout << "Returning to menu.\n"; resetColor();
-            Sleep(500);
         } else if (id >= 1 && id <= productCount) {
             system("cls");
             displayProductById(id, productsArray, productCount);
-            cout << "\nPress any key to return to menu...";
-            _getch();
+            cout << "\nPress any key to return to menu..."; _getch();
         } else {
             setColor(RED); cout << "Invalid product ID.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
+            cout << "\nPress any key to return to menu..."; _getch();
         }
     }
     int getProductStock(const string& productName) const {
@@ -1326,9 +1376,7 @@ public:
         setColor(LIGHT_BLUE); cout << "\n=== Edit Product Stock ===\n"; resetColor();
         if (productCount == 0) {
             setColor(RED); cout << "No products available to edit stock.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         setColor(GREEN); cout << "=== Current Products (sorted by name) ===\n"; resetColor();
         int maxNumLength = (int)string("No.").length();
@@ -1376,20 +1424,15 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         if (choice == 0) {
             setColor(RED); cout << "Edit stock cancelled.\n"; resetColor();
-            Sleep(500);
             return;
         }
         if (choice < 1 || choice > productCount) {
             setColor(RED); cout << "Invalid product ID.\n"; resetColor();
-            cout << "\nPress any key to return to menu...";
-            _getch();
-            return;
+            cout << "\nPress any key to return to menu..."; _getch(); return;
         }
         Product& selectedProduct = productsArray[choice - 1];
         cout << "Selected Product: " << selectedProduct.name << " (Current Stock: " << selectedProduct.stock << ")\n";
@@ -1409,21 +1452,15 @@ public:
             }
             if (newStock < 0) {
                 setColor(RED); cout << "New stock cannot be negative!\n"; resetColor();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                return;
+                cout << "\nPress any key to return to menu..."; _getch(); return;
             }
             if (newStock > numeric_limits<int>::max()) {
                 setColor(RED); cout << "New stock value is too large.\n"; resetColor();
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                return;
+                cout << "\nPress any key to return to menu..."; _getch(); return;
             }
         } catch (...) {
             setColor(RED); cout << "Invalid stock quantity! Please enter a whole number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         selectedProduct.stock = newStock;
         try {
@@ -1433,8 +1470,7 @@ public:
             cerr << "Error saving product list after stock edit: " << e.what() << endl;
             setColor(RED); cout << "Stock was updated in memory but failed to save to file. Data might be inconsistent.\n"; resetColor();
         }
-        cout << "\nPress any key to return to menu...";
-        _getch();
+        cout << "\nPress any key to return to menu..."; _getch();
     }
     Product* getProductsArray() const {
         return productsArray;
@@ -1547,48 +1583,35 @@ public:
         newUsername.erase(newUsername.find_last_not_of(" \t\n\r") + 1);
         if (newUsername.empty()) {
             setColor(RED); cout << "Username cannot be empty.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return false;
+            cout << "\nPress any key to return..."; _getch(); return false;
         }
         if (manualFind(newUsername, ',') != string::npos || manualFind(newUsername, '\t') != string::npos) {
             setColor(RED); cout << "Username cannot contain commas or tabs.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return false;
+            cout << "\nPress any key to return..."; _getch(); return false;
         }
         if (manualFileContains(filename, newUsername)) {
             setColor(RED); cout << "Username '" << newUsername << "' already exists (case-insensitive match).\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return false;
+            cout << "\nPress any key to return..."; _getch(); return false;
         }
         cout << "Enter password: ";
         newPassword = getPassword();
         if (newPassword.empty()) {
             setColor(RED); cout << "Password cannot be empty.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return false;
+            cout << "\nPress any key to return..."; _getch(); return false;
         }
         if (manualFind(newPassword, ',') != string::npos || manualFind(newPassword, '\t') != string::npos) {
             setColor(RED); cout << "Password cannot contain commas or tabs.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return false;
+            cout << "\nPress any key to return..."; _getch(); return false;
         }
         ofstream file(filename.c_str(), ios::app);
         if (!file) {
             setColor(RED); cout << "Failed to open registration file. Registration failed.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return false;
+            cout << "\nPress any key to return..."; _getch(); return false;
         }
         file << newUsername << "," << newPassword << "\n";
         file.close();
         setColor(GREEN); cout << "Registration successful for user '" << newUsername << "'!\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
+        cout << "\nPress any key to return..."; _getch();
         return true;
     }
     bool login(const string& filename) {
@@ -1605,7 +1628,7 @@ public:
                 attempts--;
                 if (attempts > 0) {
                     cout << "Attempts remaining: " << attempts << "\n";
-                    Sleep(1500); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Customer Login ===\n"; resetColor();
+                    Sleep(0); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Customer Login ===\n"; resetColor();
                 }
                 continue;
             }
@@ -1616,16 +1639,14 @@ public:
                 attempts--;
                 if (attempts > 0) {
                     cout << "Attempts remaining: " << attempts << "\n";
-                    Sleep(1500); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Customer Login ===\n"; resetColor();
+                    Sleep(0); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Customer Login ===\n"; resetColor();
                 }
                 continue;
             }
             ifstream file(filename.c_str());
             if (!file) {
                 setColor(RED); cout << "Login file not found. Please register first.\n"; resetColor();
-                cout << "\nPress any key to return...";
-                _getch();
-                return false;
+                cout << "\nPress any key to return..."; _getch(); return false;
             }
             string line;
             bool foundCredentials = false;
@@ -1637,10 +1658,8 @@ public:
                 }
                 string storedUsername = line.substr(0, commaPos);
                 string storedPassword = line.substr(commaPos + 1);
-                storedUsername.erase(0, storedUsername.find_first_not_of(" \t\n\r"));
-                storedUsername.erase(storedUsername.find_last_not_of(" \t\n\r") + 1);
-                storedPassword.erase(0, storedPassword.find_first_not_of(" \t\n\r"));
-                storedPassword.erase(storedPassword.find_last_not_of(" \t\n\r") + 1);
+                storedUsername.erase(0, storedUsername.find_first_not_of(" \t\n\r")); storedUsername.erase(storedUsername.find_last_not_of(" \t\n\r") + 1);
+                storedPassword.erase(0, storedPassword.find_first_not_of(" \t\n\r")); storedPassword.erase(storedPassword.find_last_not_of(" \t\n\r") + 1);
                 if (username == storedUsername && password == storedPassword) {
                     file.close();
                     isLoggedIn = true;
@@ -1656,11 +1675,10 @@ public:
             setColor(RED); cout << "Invalid username or password.\n"; resetColor();
             if (attempts > 0) {
                 cout << "Attempts remaining: " << attempts << "\n";
-                Sleep(1500); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Customer Login ===\n"; resetColor();
+                Sleep(0); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Customer Login ===\n"; resetColor();
             } else {
                 setColor(RED); cout << "Too many failed attempts. Returning to welcome menu.\n"; resetColor();
-                Sleep(2000);
-                return false;
+                Sleep(0); return false;
             }
         }
         return false;
@@ -1673,8 +1691,7 @@ public:
             clearList(cartList);
             cartCount = 0;
             setColor(RED); cout << "Customer logged out.\n"; resetColor();
-            cout << "\nPress any key to return to welcome menu...";
-            _getch();
+            cout << "\nPress any key to return to welcome menu..."; _getch();
         } else {
             setColor(RED); cout << "Not logged in.\n"; resetColor();
         }
@@ -1684,9 +1701,7 @@ public:
         setColor(LIGHT_BLUE); cout << "\n=== Search Product ===\n"; resetColor();
         if (!globalProductList || globalProductList->getProductCount() == 0) {
             setColor(RED); cout << "No products available to search.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         cout << "Enter part of Product Name or Category to search: ";
         string searchTerm;
@@ -1695,9 +1710,7 @@ public:
         searchTerm.erase(searchTerm.find_last_not_of(" \t\n\r") + 1);
         if (searchTerm.empty()) {
             setColor(RED); cout << "No input provided for search.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         globalProductList->searchProduct(searchTerm);
     }
@@ -1706,9 +1719,7 @@ public:
         setColor(LIGHT_BLUE); cout << "\n=== Sort Products ===\n"; resetColor();
         if (!globalProductList || globalProductList->getProductCount() == 0) {
             setColor(RED); cout << "No products available to sort.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         cout << "Sort Options:\n";
         cout << "1. Sort by Category\n";
@@ -1727,15 +1738,11 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice == 0) {
             setColor(RED); cout << "Cancelled.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice == 1) {
             globalProductList->sortAndDisplayCategories();
@@ -1743,8 +1750,7 @@ public:
             globalProductList->sortAndDisplayProductNames();
         } else {
             setColor(RED); cout << "Invalid choice.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
+            cout << "\nPress any key to return..."; _getch();
         }
     }
     void addProductToCart() {
@@ -1752,15 +1758,11 @@ public:
         setColor(LIGHT_BLUE); cout << "\n=== Add Product to Cart ===\n"; resetColor();
         if (!isLoggedIn) {
             setColor(RED); cout << "Please login first to add products to cart.\n";
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (globalProductList->getProductCount() == 0) {
             setColor(RED); cout << "No products available to add.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         Product* availableProducts = globalProductList->getProductsArray();
         int arrSize = globalProductList->getProductCount();
@@ -1820,21 +1822,15 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice == 0) {
             setColor(RED); cout << "Cancelled.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice < 1 || choice > arrSize) {
             setColor(RED); cout << "Product not found.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         const Product& selectedProduct = availableProducts[choice - 1];
         int q;
@@ -1851,21 +1847,15 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid quantity. Please enter a whole number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (q <= 0 || q > 5) {
             setColor(RED); cout << "Invalid quantity. Please enter a number between 1 and 5.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (selectedProduct.stock < q) {
             setColor(RED); cout << "Insufficient stock. Only " << selectedProduct.stock << " available.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         OrderItem itemToAdd(
             selectedProduct.name,
@@ -1876,17 +1866,14 @@ public:
         insertAtEnd(cartList, itemToAdd);
         cartCount++;
         setColor(GREEN); cout << q << " units of " << itemToAdd.name << " added to cart!\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
+        cout << "\nPress any key to return..."; _getch();
     }
     void displayCart() {
         system("cls");
         setColor(LIGHT_BLUE); cout << "\n=== Your Cart ===\n"; resetColor();
         if (!cartList) {
             setColor(RED); cout << "Cart is empty.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         int maxNumLength = (int)string("No.").length();
         int maxNameLength = (int)string("Name").length();
@@ -1935,23 +1922,18 @@ public:
             i++;
         }
         cout << headerLine << endl;
-        cout << "\nPress any key to return...";
-        _getch();
+        cout << "\nPress any key to return..."; _getch();
     }
     void removeFromCart() {
         system("cls");
         setColor(LIGHT_BLUE); cout << "\n=== Remove from Cart ===\n"; resetColor();
         if (!isLoggedIn) {
             setColor(RED); cout << "Please login first.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (!cartList) {
             setColor(RED); cout << "Cart is empty. Nothing to remove.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         displayCart();
         cout << "\nEnter the number of the product to remove (1-" << cartCount << ", or 0 to cancel): ";
@@ -1968,21 +1950,15 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice == 0) {
             setColor(RED); cout << "Removal cancelled.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice < 1 || choice > cartCount) {
             setColor(RED); cout << "Product not found in cart.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         CustomerNode* current = cartList;
         CustomerNode* prev = NULL;
@@ -1992,9 +1968,7 @@ public:
         }
         if (!current) {
             setColor(RED); cout << "Product not found in cart. (Internal error).\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (prev) {
             prev->next = current->next;
@@ -2004,23 +1978,18 @@ public:
         delete current;
         cartCount--;
         setColor(GREEN); cout << "Product removed from cart successfully!\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
+        cout << "\nPress any key to return..."; _getch();
     }
     void updateCartQuantity() {
         system("cls");
         setColor(LIGHT_BLUE); cout << "\n=== Update Cart Quantity ===\n"; resetColor();
         if (!isLoggedIn) {
             setColor(RED); cout << "Please login first.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (!cartList) {
             setColor(RED); cout << "Cart is empty. Nothing to update.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         displayCart();
         cout << "\nEnter the number of the product to update quantity (1-" << cartCount << ", or 0 to cancel): ";
@@ -2037,29 +2006,21 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid input. Please enter a number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice == 0) {
             setColor(RED); cout << "Update cancelled.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (choice < 1 || choice > cartCount) {
             setColor(RED); cout << "Product not found in cart.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         CustomerNode* current = cartList;
         for (int i = 1; i < choice && current; i++) current = current->next;
         if (!current) {
             setColor(RED); cout << "Product not found in cart. (Internal error).\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         int newQty;
         cout << "Enter new Quantity for " << current->data.name << " (max 5): ";
@@ -2075,237 +2036,214 @@ public:
             }
         } catch (...) {
             setColor(RED); cout << "Invalid quantity. Please enter a whole number.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (newQty <= 0 || newQty > 5) {
             setColor(RED); cout << "Invalid quantity. Please enter a number between 1 and 5.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         int availableStock = globalProductList->getProductStock(current->data.name);
         if (availableStock == -1) {
             setColor(RED); cout << "Product '" << current->data.name << "' not found in main inventory. Cannot update quantity.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (availableStock < newQty) {
             setColor(RED); cout << "Insufficient stock. Only " << availableStock << " available for " << current->data.name << ".\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         current->data.quantity = newQty;
         setColor(GREEN); cout << "Quantity updated to " << newQty << " for " << current->data.name << "!\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
+        cout << "\nPress any key to return..."; _getch();
     }
     void order(const string& productsFilename) {
+    system("cls");
+    setColor(LIGHT_BLUE); cout << "\n=== Place Order ===\n"; resetColor();
+    if (!isLoggedIn) {
+        setColor(RED); cout << "Please login first to place an order.\n"; resetColor();
+        cout << "\nPress any key to return..."; _getch(); return;
+    }
+    if (!cartList) {
+        setColor(RED); cout << "Your cart is empty. Nothing to order.\n"; resetColor();
+        cout << "\nPress any key to return..."; _getch(); return;
+    }
+    setColor(YELLOW); cout << "Items in your cart:\n"; resetColor();
+    int maxNumLength = (int)string("No.").length();
+    int maxNameLength = (int)string("Name").length();
+    int maxPriceLength = (int)string("Price").length();
+    int maxCategoryLength = (int)string("Category").length();
+    int maxQtyLength = (int)string("Qty.").length();
+    CustomerNode* tempNode = cartList;
+    while (tempNode) {
+        maxNumLength = manualMax(maxNumLength, (int)intToString(cartCount).length());
+        maxNameLength = manualMax(maxNameLength, (int)tempNode->data.name.length());
+        maxPriceLength = manualMax(maxPriceLength, (int)tempNode->data.priceAtPurchase.length());
+        maxCategoryLength = manualMax(maxCategoryLength, (int)tempNode->data.category.length());
+        maxQtyLength = manualMax(maxQtyLength, (int)intToString(tempNode->data.quantity).length());
+        tempNode = tempNode->next;
+    }
+    const int COLUMN_PADDING_SPACES = 2;
+    const int QTY_TOTAL_COLUMN_EXTRA_PAD = 2;
+    int numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
+    int nameColWidth = maxNameLength + COLUMN_PADDING_SPACES;
+    int priceColWidth = maxPriceLength + COLUMN_PADDING_SPACES;
+    int categoryColWidth = maxCategoryLength + COLUMN_PADDING_SPACES;
+    int qtyColWidth = manualMax((int)string("Qty.").length(), maxQtyLength) + COLUMN_PADDING_SPACES + QTY_TOTAL_COLUMN_EXTRA_PAD;
+    string cartHeaderLine = "+" + string(numColWidth, '-') + "+" + string(nameColWidth, '-') + "+" + string(priceColWidth, '-') + "+" + string(categoryColWidth, '-') + "+" + string(qtyColWidth, '-') + "+";
+    cout << cartHeaderLine << endl;
+    cout << "|" << left << setw(numColWidth) << " No."
+         << "|" << left << setw(nameColWidth) << " Name"
+         << "|" << left << setw(priceColWidth) << " Price"
+         << "|" << left << setw(categoryColWidth) << " Category"
+         << "|" << left << setw(qtyColWidth) << " Qty."
+         << "|" << endl;
+    cout << cartHeaderLine << endl;
+    int i = 1;
+    CustomerNode* current = cartList;
+    while (current) {
+        cout << "|" << left << setw(numColWidth) << (" " + intToString(i));
+        cout << "|" << left << setw(nameColWidth) << (" " + current->data.name);
+        cout << "|" << left << setw(priceColWidth) << (" " + current->data.priceAtPurchase);
+        cout << "|" << left << setw(categoryColWidth) << (" " + current->data.category);
+        string qtyStr = intToString(current->data.quantity);
+        int paddingToLeft = qtyColWidth - qtyStr.length() -1;
+        if (paddingToLeft < 0) paddingToLeft = 0;
+        cout << "|" << string(paddingToLeft, ' ');
+        setColor(LIGHT_BLUE); cout << qtyStr; resetColor();
+        cout << " |" << endl;
+        current = current->next;
+        i++;
+    }
+    cout << cartHeaderLine << endl;
+    cout << "\nDo you want to confirm your order? (1 for Yes, 0 for No): ";
+    string input;
+    int choice;
+    getline(cin, input);
+    try {
+        size_t pos;
+        choice = custom_stoi(input, &pos);
+        string remaining = input.substr(pos);
+        remaining.erase(0, remaining.find_first_not_of(" \t\n\r"));
+        if (!remaining.empty()) {
+            throw invalid_argument("Contains non-numeric characters");
+        }
+    } catch (...) {
+        setColor(RED); cout << "Invalid input. Please enter 0 or 1.\n"; resetColor();
+        cout << "\nPress any key to return..."; _getch(); return;
+    }
+    if (choice == 1) {
+        ofstream file("orders.txt", ios::app);
+        if (!file) {
+            setColor(RED); cout << "Failed to open orders file. Order could not be placed.\n"; resetColor();
+            cout << "\nPress any key to return..."; _getch(); return;
+        }
+        time_t now = time(0);
+        char time_buffer[50];
+        strftime(time_buffer, sizeof(time_buffer), "%Y-%m-%d_%H:%M:%S", localtime(&now));
+        string dt = time_buffer;
+        float totalOrderAmount = 0.0;
         system("cls");
-        setColor(LIGHT_BLUE); cout << "\n=== Place Order ===\n"; resetColor();
-        if (!isLoggedIn) {
-            setColor(RED); cout << "Please login first to place an order.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
-        }
-        if (!cartList) {
-            setColor(RED); cout << "Your cart is empty. Nothing to order.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
-        }
-        setColor(YELLOW); cout << "Items in your cart:\n"; resetColor();
-        int maxNumLength = (int)string("No.").length();
-        int maxNameLength = (int)string("Name").length();
-        int maxPriceLength = (int)string("Price").length();
-        int maxCategoryLength = (int)string("Category").length();
-        int maxQtyLength = (int)string("Qty.").length();
-        CustomerNode* tempNode = cartList;
-        while (tempNode) {
+        setColor(LIGHT_BLUE); cout << "\n=== Order Invoice ===\n"; resetColor();
+        cout << "Date: " << dt << endl;
+        cout << "Customer: " << username << endl;
+        cout << "\nItems Ordered:\n";
+        maxNumLength = (int)string("No.").length();
+        maxNameLength = (int)string("Name").length();
+        int maxPriceColContentLength = (int)string("Price").length();
+        maxQtyLength = (int)string("Qty").length();
+        int maxItemTotalContentLength = (int)string("Total").length();
+        current = cartList;
+        while (current) {
             maxNumLength = manualMax(maxNumLength, (int)intToString(cartCount).length());
-            maxNameLength = manualMax(maxNameLength, (int)tempNode->data.name.length());
-            maxPriceLength = manualMax(maxPriceLength, (int)tempNode->data.priceAtPurchase.length());
-            maxCategoryLength = manualMax(maxCategoryLength, (int)tempNode->data.category.length());
-            maxQtyLength = manualMax(maxQtyLength, (int)intToString(tempNode->data.quantity).length());
-            tempNode = tempNode->next;
+            maxNameLength = manualMax(maxNameLength, (int)current->data.name.length());
+            string numPricePart = current->data.priceAtPurchase.substr(3);
+            double priceVal = 0.0;
+            try { priceVal = custom_stod(numPricePart); } catch(...) {}
+            float itemTotal = priceVal * current->data.quantity;
+            stringstream priceSS_len, totalSS_len;
+            priceSS_len << "RM" << fixed << setprecision(2) << priceVal;
+            totalSS_len << "RM" << fixed << setprecision(2) << itemTotal;
+            maxPriceColContentLength = manualMax(maxPriceColContentLength, (int)priceSS_len.str().length());
+            maxItemTotalContentLength = manualMax(maxItemTotalContentLength, (int)totalSS_len.str().length());
+            maxQtyLength = manualMax(maxQtyLength, (int)intToString(current->data.quantity).length());
+            current = current->next;
         }
-        const int COLUMN_PADDING_SPACES = 2;
-        const int QTY_TOTAL_COLUMN_EXTRA_PAD = 2;
-        int numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
-        int nameColWidth = maxNameLength + COLUMN_PADDING_SPACES;
-        int priceColWidth = maxPriceLength + COLUMN_PADDING_SPACES;
-        int categoryColWidth = maxCategoryLength + COLUMN_PADDING_SPACES;
-        int qtyColWidth = manualMax((int)string("Qty.").length(), maxQtyLength) + COLUMN_PADDING_SPACES + QTY_TOTAL_COLUMN_EXTRA_PAD;
-        string cartHeaderLine = "+" + string(numColWidth, '-') + "+" + string(nameColWidth, '-') + "+" + string(priceColWidth, '-') + "+" + string(categoryColWidth, '-') + "+" + string(qtyColWidth, '-') + "+";
-        cout << cartHeaderLine << endl;
+        numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
+        nameColWidth = maxNameLength + COLUMN_PADDING_SPACES;
+        priceColWidth = maxPriceColContentLength + COLUMN_PADDING_SPACES;
+        qtyColWidth = manualMax((int)string("Qty").length(), maxQtyLength) + COLUMN_PADDING_SPACES + QTY_TOTAL_COLUMN_EXTRA_PAD;
+        int itemTotalColWidth = manualMax((int)string("Total").length(), maxItemTotalContentLength) + COLUMN_PADDING_SPACES + QTY_TOTAL_COLUMN_EXTRA_PAD;
+        string invoiceLine = "+" + string(numColWidth, '-') + "+" + string(nameColWidth, '-') + "+" + string(priceColWidth, '-') + "+" + string(qtyColWidth, '-') + "+" + string(itemTotalColWidth, '-') + "+";
+        cout << invoiceLine << endl;
         cout << "|" << left << setw(numColWidth) << " No."
              << "|" << left << setw(nameColWidth) << " Name"
              << "|" << left << setw(priceColWidth) << " Price"
-             << "|" << left << setw(categoryColWidth) << " Category"
-             << "|" << left << setw(qtyColWidth) << " Qty."
+             << "|" << left << setw(qtyColWidth) << " Qty"
+             << "|" << left << setw(itemTotalColWidth) << " Total"
              << "|" << endl;
-        cout << cartHeaderLine << endl;
-        int i = 1;
-        CustomerNode* current = cartList;
+        cout << invoiceLine << endl;
+        current = cartList;
+        i = 1;
+        CustomerNode* nextCartItem = NULL;
         while (current) {
+            nextCartItem = current->next;
+            string numPricePart = current->data.priceAtPurchase.substr(3);
+            double priceVal = 0.0;
+            try { priceVal = custom_stod(numPricePart); } catch(...) {}
+            float itemTotal = priceVal * current->data.quantity;
+            totalOrderAmount += itemTotal;
+            stringstream priceSS, totalSS;
+            priceSS << "RM" << fixed << setprecision(2) << priceVal;
+            totalSS << "RM" << fixed << setprecision(2) << itemTotal;
             cout << "|" << left << setw(numColWidth) << (" " + intToString(i));
             cout << "|" << left << setw(nameColWidth) << (" " + current->data.name);
-            cout << "|" << left << setw(priceColWidth) << (" " + current->data.priceAtPurchase);
-            cout << "|" << left << setw(categoryColWidth) << (" " + current->data.category);
+            cout << "|" << left << setw(priceColWidth) << (" " + priceSS.str());
             string qtyStr = intToString(current->data.quantity);
-            int paddingToLeft = qtyColWidth - qtyStr.length() -1;
-            if (paddingToLeft < 0) paddingToLeft = 0;
-            cout << "|" << string(paddingToLeft, ' ');
+            int qtyPaddingToLeft = qtyColWidth - qtyStr.length() -1;
+            if (qtyPaddingToLeft < 0) qtyPaddingToLeft = 0;
+            cout << "|" << string(qtyPaddingToLeft, ' ');
             setColor(LIGHT_BLUE); cout << qtyStr; resetColor();
+            cout << " |";
+            string totalStr = totalSS.str();
+            int totalPaddingToLeft = itemTotalColWidth - totalStr.length() -1;
+            if (totalPaddingToLeft < 0) totalPaddingToLeft = 0;
+            cout << string(totalPaddingToLeft, ' ');
+            setColor(LIGHT_BLUE); cout << totalStr; resetColor();
             cout << " |" << endl;
-            current = current->next;
+            file << username << "\t" << dt << "\t" << current->data.name << "\t"
+                 << current->data.quantity << "\t" << current->data.priceAtPurchase << endl;
+            globalProductList->updateProductStock(current->data.name, -current->data.quantity, productsFilename);
+            OrderItem orderedItem = current->data;
+            orderedItem.timestamp = dt;
+            insertAtEnd(orderHistory, orderedItem);
+            orderHistoryCount++;
+            current = nextCartItem;
             i++;
         }
-        cout << cartHeaderLine << endl;
-        cout << "\nDo you want to confirm your order? (1 for Yes, 0 for No): ";
-        string input;
-        int choice;
-        getline(cin, input);
-        try {
-            size_t pos;
-            choice = custom_stoi(input, &pos);
-            string remaining = input.substr(pos);
-            remaining.erase(0, remaining.find_first_not_of(" \t\n\r"));
-            if (!remaining.empty()) {
-                throw invalid_argument("Contains non-numeric characters");
-            }
-        } catch (...) {
-            setColor(RED); cout << "Invalid input. Please enter 0 or 1.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
-        }
-        if (choice == 1) {
-            ofstream file("orders.txt", ios::app);
-            if (!file) {
-                setColor(RED); cout << "Failed to open orders file. Order could not be placed.\n"; resetColor();
-                cout << "\nPress any key to return...";
-                _getch();
-                return;
-            }
-            time_t now = time(0);
-            char time_buffer[50];
-            strftime(time_buffer, sizeof(time_buffer), "%Y-%m-%d %H:%M:%S", localtime(&now));
-            string dt = time_buffer;
-            float totalOrderAmount = 0.0;
-            system("cls");
-            setColor(LIGHT_BLUE); cout << "\n=== Order Invoice ===\n"; resetColor();
-            cout << "Date: " << dt << endl;
-            cout << "Customer: " << username << endl;
-            cout << "\nItems Ordered:\n";
-            maxNumLength = (int)string("No.").length();
-            maxNameLength = (int)string("Name").length();
-            int maxPriceColContentLength = (int)string("Price").length();
-            maxQtyLength = (int)string("Qty").length();
-            int maxItemTotalContentLength = (int)string("Total").length();
-            current = cartList;
-            while (current) {
-                maxNumLength = manualMax(maxNumLength, (int)intToString(cartCount).length());
-                maxNameLength = manualMax(maxNameLength, (int)current->data.name.length());
-                string numPricePart = current->data.priceAtPurchase.substr(3);
-                double priceVal = 0.0;
-                try { priceVal = custom_stod(numPricePart); } catch(...) {}
-                float itemTotal = priceVal * current->data.quantity;
-                stringstream priceSS_len, totalSS_len;
-                priceSS_len << "RM" << fixed << setprecision(2) << priceVal;
-                totalSS_len << "RM" << fixed << setprecision(2) << itemTotal;
-                maxPriceColContentLength = manualMax(maxPriceColContentLength, (int)priceSS_len.str().length());
-                maxItemTotalContentLength = manualMax(maxItemTotalContentLength, (int)totalSS_len.str().length());
-                maxQtyLength = manualMax(maxQtyLength, (int)intToString(current->data.quantity).length());
-                current = current->next;
-            }
-            numColWidth = maxNumLength + COLUMN_PADDING_SPACES;
-            nameColWidth = maxNameLength + COLUMN_PADDING_SPACES;
-            priceColWidth = maxPriceColContentLength + COLUMN_PADDING_SPACES;
-            qtyColWidth = manualMax((int)string("Qty").length(), maxQtyLength) + COLUMN_PADDING_SPACES + QTY_TOTAL_COLUMN_EXTRA_PAD;
-            int itemTotalColWidth = manualMax((int)string("Total").length(), maxItemTotalContentLength) + COLUMN_PADDING_SPACES + QTY_TOTAL_COLUMN_EXTRA_PAD;
-            string invoiceLine = "+" + string(numColWidth, '-') + "+" + string(nameColWidth, '-') + "+" + string(priceColWidth, '-') + "+" + string(qtyColWidth, '-') + "+" + string(itemTotalColWidth, '-') + "+";
-            cout << invoiceLine << endl;
-            cout << "|" << left << setw(numColWidth) << " No."
-                 << "|" << left << setw(nameColWidth) << " Name"
-                 << "|" << left << setw(priceColWidth) << " Price"
-                 << "|" << left << setw(qtyColWidth) << " Qty"
-                 << "|" << left << setw(itemTotalColWidth) << " Total"
-                 << "|" << endl;
-            cout << invoiceLine << endl;
-            current = cartList;
-            i = 1;
-            CustomerNode* nextCartItem = NULL;
-            while (current) {
-                nextCartItem = current->next;
-                string numPricePart = current->data.priceAtPurchase.substr(3);
-                double priceVal = 0.0;
-                try { priceVal = custom_stod(numPricePart); } catch(...) {}
-                float itemTotal = priceVal * current->data.quantity;
-                totalOrderAmount += itemTotal;
-                stringstream priceSS, totalSS;
-                priceSS << "RM" << fixed << setprecision(2) << priceVal;
-                totalSS << "RM" << fixed << setprecision(2) << itemTotal;
-                cout << "|" << left << setw(numColWidth) << (" " + intToString(i));
-                cout << "|" << left << setw(nameColWidth) << (" " + current->data.name);
-                cout << "|" << left << setw(priceColWidth) << (" " + priceSS.str());
-                string qtyStr = intToString(current->data.quantity);
-                int qtyPaddingToLeft = qtyColWidth - qtyStr.length() -1;
-                if (qtyPaddingToLeft < 0) qtyPaddingToLeft = 0;
-                cout << "|" << string(qtyPaddingToLeft, ' ');
-                setColor(LIGHT_BLUE); cout << qtyStr; resetColor();
-                cout << " |";
-                string totalStr = totalSS.str();
-                int totalPaddingToLeft = itemTotalColWidth - totalStr.length() -1;
-                if (totalPaddingToLeft < 0) totalPaddingToLeft = 0;
-                cout << string(totalPaddingToLeft, ' ');
-                setColor(LIGHT_BLUE); cout << totalStr; resetColor();
-                cout << " |" << endl;
-                file << username << "\t" << dt << "\t" << current->data.name << "\t"
-                     << current->data.quantity << "\t" << totalSS.str() << endl;
-                globalProductList->updateProductStock(current->data.name, -current->data.quantity, productsFilename);
-                OrderItem orderedItem = current->data;
-                orderedItem.timestamp = dt;
-                insertAtEnd(orderHistory, orderedItem);
-                orderHistoryCount++;
-                current = nextCartItem;
-                i++;
-            }
-            cout << invoiceLine << endl;
-            stringstream totalAmountSS;
-            totalAmountSS << "RM" << fixed << setprecision(2) << totalOrderAmount;
-            cout << "Total Amount: " << totalAmountSS.str() << endl;
-            cout << invoiceLine << endl;
-            file.close();
-            clearList(cartList);
-            cartCount = 0;
-            setColor(GREEN); cout << "Order placed successfully! Thank you for your purchase.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-        } else {
-            setColor(RED); cout << "Order cancelled.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-        }
+        cout << invoiceLine << endl;
+        stringstream totalAmountSS;
+        totalAmountSS << "RM" << fixed << setprecision(2) << totalOrderAmount;
+        cout << "Total Amount: " << totalAmountSS.str() << endl;
+        cout << invoiceLine << endl;
+        file.close();
+        clearList(cartList);
+        cartCount = 0;
+        setColor(GREEN); cout << "Order placed successfully! Thank you for your purchase.\n"; resetColor();
+        cout << "\nPress any key to return..."; _getch();
+    } else {
+        setColor(RED); cout << "Order cancelled.\n"; resetColor();
+        cout << "\nPress any key to return..."; _getch();
     }
+}
     void viewOrderHistory() {
         system("cls");
         setColor(LIGHT_BLUE); cout << "\n=== Purchase Histories ===\n"; resetColor();
         if (!isLoggedIn) {
             setColor(RED); cout << "Please login first to view purchase history.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         if (!orderHistory) {
             setColor(RED); cout << "No purchase history available.\n"; resetColor();
-            cout << "\nPress any key to return...";
-            _getch();
-            return;
+            cout << "\nPress any key to return..."; _getch(); return;
         }
         CustomerNode* current = orderHistory;
         int maxNumLength = (int)string("No.").length();
@@ -2357,8 +2295,7 @@ public:
             i++;
         }
         cout << headerLine << endl;
-        cout << "\nPress any key to return...";
-        _getch();
+        cout << "\nPress any key to return..."; _getch();
     }
     bool isUserLoggedIn() const {
         return isLoggedIn;
@@ -2366,7 +2303,7 @@ public:
 };
 bool adminLogin(const string& staffFilename);
 void adminRegister(const string& staffFilename);
-void displayAdminMenu(ProductList& list, const string& categoriesFilename, const string& productsFilename);
+void displayAdminMenu(ProductList& list, const string& categoriesFilename, const string& productsFilename, const string& ordersFilename);
 void displayCustomerMenu(Customer& cust, const string& productsFilename);
 int main() {
     ProductList globalProductList;
@@ -2396,11 +2333,11 @@ int main() {
             }
         } catch (const invalid_argument&) {
             setColor(RED); cout << "Invalid input. Please enter a number from 1 to 3.\n"; resetColor();
-            Sleep(1500);
+            Sleep(100);
             continue;
         } catch (const out_of_range&) {
             setColor(RED); cout << "Input number is out of range. Please enter 1 to 3.\n"; resetColor();
-            Sleep(1500);
+            Sleep(100);
             continue;
         }
         switch (initialChoice) {
@@ -2424,7 +2361,7 @@ int main() {
                         if (!remaining.empty()) throw invalid_argument("");
                     } catch (...) {
                         setColor(RED); cout << "Invalid input. Please enter a number from 1 to 3.\n"; resetColor();
-                        Sleep(1500);
+                        Sleep(100);
                         continue;
                     }
                     switch (adminChoice) {
@@ -2436,12 +2373,12 @@ int main() {
                                 setColor(YELLOW); cout << "Loading categories and products for validation...\n"; resetColor();
                                 globalProductList.loadCategories(categoriesFilename);
                                 globalProductList.loadFromFile(productsFilename);
-                                Sleep(500);
+                                Sleep(100);
                                 if (adminLogin(staffFilename)) {
                                     adminAccessGranted = true;
                                     setColor(GREEN); cout << "Admin Login successful! Redirecting to Admin Menu...\n"; resetColor();
                                     showLoading();
-                                    displayAdminMenu(globalProductList, categoriesFilename, productsFilename);
+                                    displayAdminMenu(globalProductList, categoriesFilename, productsFilename, ordersFilename);
                                 }
                             } catch (const runtime_error& e) {
                                 cerr << "Fatal Error during initial data loading for Admin: " << e.what() << endl;
@@ -2455,7 +2392,7 @@ int main() {
                             break;
                         default:
                             setColor(RED); cout << "Invalid choice. Please enter 1, 2, or 3.\n"; resetColor();
-                            Sleep(1500);
+                            Sleep(100);
                             break;
                     }
                 }
@@ -2481,7 +2418,7 @@ int main() {
                         if (!remaining.empty()) throw invalid_argument("");
                     } catch (...) {
                         setColor(RED); cout << "Invalid input. Please enter a number from 1 to 3.\n"; resetColor();
-                        Sleep(1500);
+                        Sleep(100);
                         continue;
                     }
                     switch (customerChoice) {
@@ -2493,7 +2430,7 @@ int main() {
                                 setColor(YELLOW); cout << "Loading categories and products for customer access...\n"; resetColor();
                                 globalProductList.loadCategories(categoriesFilename);
                                 globalProductList.loadFromFile(productsFilename);
-                                Sleep(500);
+                                Sleep(100);
                                 if (customerApp.login(loginFilename)) {
                                     customerAccessGranted = true;
                                     setColor(GREEN); cout << "Customer Login successful! Redirecting to Customer Menu...\n"; resetColor();
@@ -2512,7 +2449,7 @@ int main() {
                             break;
                         default:
                             setColor(RED); cout << "Invalid choice. Please enter 1, 2, or 3.\n"; resetColor();
-                            Sleep(1500);
+                            Sleep(100);
                             break;
                     }
                 }
@@ -2520,11 +2457,11 @@ int main() {
             }
             case 3:
                 setColor(RED); cout << "Exiting Florish Shop program. Goodbye!\n"; resetColor();
-                Sleep(1000);
+                Sleep(100);
                 return 0;
             default:
                 setColor(RED); cout << "Invalid choice. Please enter 1, 2, or 3.\n"; resetColor();
-                Sleep(1500);
+                Sleep(100);
                 break;
         }
     }
@@ -2580,7 +2517,7 @@ bool adminLogin(const string& staffFilename) {
             attempts--;
             if (attempts > 0) {
                 cout << "Attempts remaining: " << attempts << "\n";
-                Sleep(1500); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Admin Login ===\n"; resetColor();
+                Sleep(0); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Admin Login ===\n"; resetColor();
             }
             continue;
         }
@@ -2591,7 +2528,7 @@ bool adminLogin(const string& staffFilename) {
             attempts--;
             if (attempts > 0) {
                 cout << "Attempts remaining: " << attempts << "\n";
-                Sleep(1500); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Admin Login ===\n"; resetColor();
+                Sleep(0); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Admin Login ===\n"; resetColor();
             }
             continue;
         }
@@ -2602,12 +2539,12 @@ bool adminLogin(const string& staffFilename) {
             setColor(RED); cout << "Invalid credentials.\n"; resetColor();
             if (attempts > 0) {
                 cout << "Attempts remaining: " << attempts << "\n";
-                Sleep(1500); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Admin Login ===\n"; resetColor();
+                Sleep(0); system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Admin Login ===\n"; resetColor();
             }
         }
     }
     setColor(RED); cout << "Too many failed attempts. Returning to main menu.\n"; resetColor();
-    Sleep(2000);
+    Sleep(0);
     return false;
 }
 void adminRegister(const string& staffFilename) {
@@ -2621,35 +2558,25 @@ void adminRegister(const string& staffFilename) {
     username.erase(username.find_last_not_of(" \t\n\r") + 1);
     if (username.empty()) {
         setColor(RED); cout << "Username cannot be empty.\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
-        return;
+        cout << "\nPress any key to return..."; _getch(); return;
     }
     if (manualFind(username, ',') != string::npos) {
         setColor(RED); cout << "Username cannot contain commas.\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
-        return;
+        cout << "\nPress any key to return..."; _getch(); return;
     }
     if (fileExistsInitially && manualFileContains(staffFilename, username)) {
         setColor(RED); cout << "Username '" << username << "' already exists (case-insensitive match).\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
-        return;
+        cout << "\nPress any key to return..."; _getch(); return;
     }
     cout << "Enter desired password: ";
     password = getPassword();
     if (password.empty()) {
         setColor(RED); cout << "Password cannot be empty.\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
-        return;
+        cout << "\nPress any key to return..."; _getch(); return;
     }
     if (manualFind(password, ',') != string::npos) {
         setColor(RED); cout << "Password cannot contain commas.\n"; resetColor();
-        cout << "\nPress any key to return...";
-        _getch();
-        return;
+        cout << "\nPress any key to return..."; _getch(); return;
     }
     ofstream outFile(staffFilename.c_str(), ios::app);
     if (!outFile) {
@@ -2660,10 +2587,9 @@ void adminRegister(const string& staffFilename) {
         outFile.close();
         setColor(GREEN); cout << "Admin user '" << username << "' registered successfully.\n"; resetColor();
     }
-    cout << "\nPress any key to return...";
-    _getch();
+    cout << "\nPress any key to return..."; _getch();
 }
-void displayAdminMenu(ProductList& list, const string& categoriesFilename, const string& productsFilename) {
+void displayAdminMenu(ProductList& list, const string& categoriesFilename, const string& productsFilename, const string& ordersFilename) {
     bool adminLoggedIn = true;
     while (adminLoggedIn) {
         system("cls");
@@ -2692,86 +2618,43 @@ void displayAdminMenu(ProductList& list, const string& categoriesFilename, const
             }
         } catch (const invalid_argument&) {
             setColor(RED); cout << "Invalid input. Please enter a number from 1 to 10.\n"; resetColor();
-            Sleep(1500);
+            Sleep(100);
             continue;
         } catch (const out_of_range&) {
             setColor(RED); cout << "Input number is out of range. Please enter 1 to 10.\n"; resetColor();
-            Sleep(1500);
+            Sleep(100);
             continue;
         }
         switch (choice) {
-            case 1:
-                list.sortAndDisplayCategories();
-                break;
-            case 2:
-                list.sortAndDisplayProductNames();
-                break;
-            case 3:
-                list.addCategory(categoriesFilename);
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            case 4:
-                list.addProduct(productsFilename);
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            case 5:
-                list.deleteCategory(categoriesFilename, productsFilename);
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
-            case 6:
-                list.deleteProduct(productsFilename);
-                cout << "\nPress any key to return to menu...";
-                _getch();
-                break;
+            case 1: list.sortAndDisplayCategories(); break;
+            case 2: list.sortAndDisplayProductNames(); break;
+            case 3: list.addCategory(categoriesFilename); break;
+            case 4: list.addProduct(productsFilename); break;
+            case 5: list.deleteCategory(categoriesFilename, productsFilename); cout << "\nPress any key to return to menu..."; _getch(); break;
+            case 6: list.deleteProduct(productsFilename, ordersFilename); cout << "\nPress any key to return to menu..."; _getch(); break;
             case 7: {
-                system("cls");
-                setColor(LIGHT_BLUE); cout << "\n=== Search Product ===\n"; resetColor();
+                system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Search Product ===\n"; resetColor();
                 string searchTerm;
                 cout << "Enter product name or category to search: ";
                 getline(cin, searchTerm);
                 searchTerm.erase(0, searchTerm.find_first_not_of(" \t\n\r"));
                 searchTerm.erase(searchTerm.find_last_not_of(" \t\n\r") + 1);
-                if (!searchTerm.empty()) {
-                    list.searchProduct(searchTerm);
-                } else {
-                    setColor(RED); cout << "Search term cannot be empty.\n"; resetColor();
-                    cout << "\nPress any key to return to menu...";
-                    _getch();
-                }
+                if (!searchTerm.empty()) {list.searchProduct(searchTerm);} else {setColor(RED); cout << "Search term cannot be empty.\n"; resetColor(); cout << "\nPress any key to return to menu..."; _getch();}
                 break;
             }
             case 8: {
-                system("cls");
-                setColor(LIGHT_BLUE); cout << "\n=== Search Category ===\n"; resetColor();
+                system("cls"); setColor(LIGHT_BLUE); cout << "\n=== Search Category ===\n"; resetColor();
                 string searchTerm;
                 cout << "Enter category name to search: ";
                 getline(cin, searchTerm);
                 searchTerm.erase(0, searchTerm.find_first_not_of(" \t\n\r"));
                 searchTerm.erase(searchTerm.find_last_not_of(" \t\n\r") + 1);
-                if (!searchTerm.empty()) {
-                    list.searchCategory(searchTerm);
-                } else {
-                    setColor(RED); cout << "Search term cannot be empty.\n"; resetColor();
-                    cout << "\nPress any key to return to menu...";
-                    _getch();
-                }
+                if (!searchTerm.empty()) {list.searchCategory(searchTerm);} else {setColor(RED); cout << "Search term cannot be empty.\n"; resetColor(); cout << "\nPress any key to return to menu..."; _getch();}
                 break;
             }
-            case 9:
-                list.editProductStock(productsFilename);
-                break;
-            case 10:
-                adminLoggedIn = false;
-                setColor(YELLOW); cout << "Admin logged out. Returning to main menu.\n"; resetColor();
-                Sleep(1000);
-                break;
-            default:
-                setColor(RED); cout << "Invalid choice. Please enter a number from 1 to 10.\n"; resetColor();
-                Sleep(1500);
-                break;
+            case 9: list.editProductStock(productsFilename); break;
+            case 10: adminLoggedIn = false; setColor(YELLOW); cout << "Admin logged out. Returning to main menu.\n"; resetColor(); Sleep(100); break;
+            default: setColor(RED); cout << "Invalid choice. Please enter a number from 1 to 10.\n"; resetColor(); Sleep(100); break;
         }
     }
 }
@@ -2802,11 +2685,11 @@ void displayCustomerMenu(Customer& cust, const string& productsFilename) {
             }
         } catch (const invalid_argument&) {
             setColor(RED); cout << "Invalid input. Please enter a number from 1 to 8.\n"; resetColor();
-            Sleep(1500);
+            Sleep(100);
             continue;
         } catch (const out_of_range&) {
             setColor(RED); cout << "Input number is out of range. Please enter 1 to 8.\n"; resetColor();
-            Sleep(1500);
+            Sleep(100);
             continue;
         }
         switch (choice) {
@@ -2823,7 +2706,7 @@ void displayCustomerMenu(Customer& cust, const string& productsFilename) {
                 break;
             default:
                 setColor(RED); cout << "Invalid choice. Please enter 1 to 8.\n"; resetColor();
-                Sleep(1500);
+                Sleep(100);
                 break;
         }
     }
